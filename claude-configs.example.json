@@ -1,0 +1,17 @@
+{
+  "configs": [
+    {
+      "name": "官方API",
+      "apiKey": "sk-ant-api03-你的API-Key-这里",
+      "baseUrl": "https://api.anthropic.com",
+      "createdAt": "2025-03-03T12:00:00.000Z"
+    },
+    {
+      "name": "代理API示例",
+      "apiKey": "sk-ant-api03-你的代理API-Key-这里",
+      "baseUrl": "https://your-proxy.example.com",
+      "createdAt": "2025-03-03T13:00:00.000Z"
+    }
+  ],
+  "current": "官方API"
+}
