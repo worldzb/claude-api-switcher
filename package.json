@@ -1,6 +1,6 @@
 {
   "name": "claude-api-switcher",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "A tool to switch between different Claude API configurations",
   "main": "index.js",
   "bin": {
