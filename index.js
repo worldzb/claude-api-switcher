@@ -492,7 +492,7 @@ Base URL: ${config.baseUrl}
 const program = new Command();
 
 program
-  .name('claude-switch')
+  .name('zcs')
   .description('🤖 Claude API 配置切换工具')
   .version('1.0.0')
   .addHelpText(
@@ -507,7 +507,7 @@ program
     'after',
     chalk.gray(`
 📂 配置目录: ~/.claude-switch-config/
-💡 提示: 首次使用请运行 'claude-switch add -i' 添加配置
+💡 提示: 首次使用请运行 'zcs add -i' 添加配置
 `)
   );
 
