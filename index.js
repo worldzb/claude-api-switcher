@@ -16,10 +16,11 @@ import {
 } from '@clack/prompts';
 
 // 配置目录和文件路径
-const CONFIG_DIR = path.join(process.env.HOME, '.claude-switch-config');
+const HOME_DIR = process.env.HOME || process.env.USERPROFILE;
+const CONFIG_DIR = path.join(HOME_DIR, '.claude-switch-config');
 const CONFIG_FILE = path.join(CONFIG_DIR, 'claude-configs.json');
 const ENV_FILE = path.join(CONFIG_DIR, '.claude-env');
-const CLAUDE_SETTINGS_FILE = path.join(process.env.HOME, '.claude', 'settings.json');
+const CLAUDE_SETTINGS_FILE = path.join(HOME_DIR, '.claude', 'settings.json');
 
 // 确保配置目录存在
 function ensureConfigDir() {
