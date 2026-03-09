@@ -20,6 +20,7 @@ const CONFIG_DIR = path.join(process.env.HOME, '.claude-switch-config');
 const CONFIG_FILE = path.join(CONFIG_DIR, 'claude-configs.json');
 const ENV_FILE = path.join(CONFIG_DIR, '.claude-env');
 const CLAUDE_SETTINGS_FILE = path.join(process.env.HOME, '.claude', 'settings.json');
+const OPENCLAW_SETTINGS_FILE = path.join(process.env.HOME, '.openclaw', 'openclaw.json');
 
 // 确保配置目录存在
 function ensureConfigDir() {
@@ -88,27 +89,48 @@ function listConfigs() {
   const currentApiKey = claudeSettings.env?.ANTHROPIC_AUTH_TOKEN;
   const currentBaseUrl = claudeSettings.env?.ANTHROPIC_BASE_URL;
 
+  // 读取 OpenClaw 设置以获取当前实际使用的配置
+  const openclawSettings = readOpenClawSettings();
+  const currentOpenClawPrimary = openclawSettings.agents?.defaults?.model?.primary || '';
+
   console.log(chalk.bold('\n📋 可用配置：\n'));
   configs.configs.forEach((config) => {
+    const target = config.target || 'claude';
     const isCurrentDefault = configs.current === config.name;
-    const isActualCurrent = currentApiKey === config.apiKey && currentBaseUrl === config.baseUrl;
 
     let icon = '⚪';
     let status = '';
+    const platformTag = target === 'openclaw'
+      ? chalk.hex('#FF8C00')('[OpenClaw]')
+      : chalk.hex('#7C3AED')('[Claude]');
 
-    if (isActualCurrent) {
-      icon = '🟢';
-      status = isCurrentDefault ? chalk.green(' (当前默认)') : chalk.yellow(' (使用中)');
-    } else if (isCurrentDefault) {
-      icon = '🔵';
-      status = chalk.gray(' (已设为默认)');
+    if (target === 'claude') {
+      const isActualCurrent = currentApiKey === config.apiKey && currentBaseUrl === config.baseUrl;
+      if (isActualCurrent) {
+        icon = '🟢';
+        status = isCurrentDefault ? chalk.green(' (当前默认)') : chalk.yellow(' (使用中)');
+      } else if (isCurrentDefault) {
+        icon = '🔵';
+        status = chalk.gray(' (已设为默认)');
+      }
+    } else {
+      const providerKey = config.openclawProvider || `custom-${config.name}`;
+      const modelId = config.openclawModel || 'default';
+      const isActualCurrent = currentOpenClawPrimary === `${providerKey}/${modelId}`;
+      if (isActualCurrent) {
+        icon = '🟢';
+        status = chalk.green(' (当前默认)');
+      }
     }
 
     const maskedKey = maskApiKey(config.apiKey);
 
-    console.log(`${icon}  ${chalk.bold(config.name)}${status}`);
+    console.log(`${icon}  ${platformTag} ${chalk.bold(config.name)}${status}`);
     console.log(`   🔑 API Key: ${chalk.gray(maskedKey)}`);
     console.log(`   🌐 Base URL: ${chalk.blue(config.baseUrl)}`);
+    if (target === 'openclaw' && config.openclawModel) {
+      console.log(`   🤖 模型: ${chalk.cyan(config.openclawModel)}`);
+    }
     console.log('');
   });
 }
@@ -133,6 +155,28 @@ function writeClaudeSettings(settings) {
     fs.mkdirSync(settingsDir, { recursive: true });
   }
   fs.writeFileSync(CLAUDE_SETTINGS_FILE, JSON.stringify(settings, null, 2), 'utf8');
+}
+
+// 读取 OpenClaw 设置文件
+function readOpenClawSettings() {
+  if (!fs.existsSync(OPENCLAW_SETTINGS_FILE)) {
+    return { models: { providers: {} }, agents: { defaults: { model: {} } } };
+  }
+  try {
+    const data = fs.readFileSync(OPENCLAW_SETTINGS_FILE, 'utf8');
+    return JSON.parse(data);
+  } catch (error) {
+    return { models: { providers: {} }, agents: { defaults: { model: {} } } };
+  }
+}
+
+// 写入 OpenClaw 设置文件
+function writeOpenClawSettings(settings) {
+  const settingsDir = path.dirname(OPENCLAW_SETTINGS_FILE);
+  if (!fs.existsSync(settingsDir)) {
+    fs.mkdirSync(settingsDir, { recursive: true });
+  }
+  fs.writeFileSync(OPENCLAW_SETTINGS_FILE, JSON.stringify(settings, null, 2), 'utf8');
 }
 
 // 临时使用配置（只作用于当前终端）
@@ -198,6 +242,72 @@ function setDefaultConfig(name) {
   console.log(chalk.yellow(`\n⚠️  需要重启 Claude Code 才能生效\n`));
 }
 
+// 设置为默认配置（OpenClaw）
+function setDefaultConfigOpenClaw(name) {
+  const configs = readConfigs();
+  const config = configs.configs.find((c) => c.name === name);
+
+  if (!config) {
+    console.log(chalk.red(`配置 "${name}" 不存在！`));
+    return;
+  }
+
+  // 更新当前配置
+  configs.current = name;
+  writeConfigs(configs);
+
+  // 更新 openclaw.json
+  const settings = readOpenClawSettings();
+  settings.models = settings.models || { providers: {} };
+  settings.models.mode = 'replace';
+  settings.agents = settings.agents || { defaults: { model: {} } };
+  settings.agents.defaults = settings.agents.defaults || { model: {} };
+  settings.agents.defaults.model = settings.agents.defaults.model || {};
+
+  const providerKey = config.openclawProvider || `custom-${name}`;
+  const modelId = config.openclawModel || 'default';
+  const modelAlias = config.openclawAlias || '';
+  const primaryPath = `${providerKey}/${modelId}`;
+
+  // 清空所有 providers，只保留当前选中的一个
+  settings.models.providers = {
+    [providerKey]: {
+      baseUrl: config.baseUrl,
+      apiKey: config.apiKey,
+      api: 'anthropic-messages',
+      models: [
+        {
+          id: modelId,
+          name: `${modelId} (Custom Provider)`,
+          reasoning: false,
+          input: ['text'],
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+          contextWindow: 200000,
+          maxTokens: 40960,
+        },
+      ],
+    },
+  };
+
+  // 同步更新 agents.defaults.model 和 agents.defaults.models
+  settings.agents.defaults.model.primary = primaryPath;
+  settings.agents.defaults.models = modelAlias
+    ? { [primaryPath]: { alias: modelAlias } }
+    : {};
+
+  writeOpenClawSettings(settings);
+
+  console.log(chalk.green(`✓ 已将 "${name}" 设置为 OpenClaw 默认配置`));
+  console.log(chalk.gray(`─`.repeat(50)));
+  console.log(chalk.cyan(`\n📝 已更新文件：`));
+  console.log(chalk.gray(`   • ~/.openclaw/openclaw.json`));
+  console.log(chalk.gray(`   • 主模型: ${primaryPath}`));
+  if (modelAlias) {
+    console.log(chalk.gray(`   • 别名: ${modelAlias}`));
+  }
+  console.log(chalk.yellow(`\n⚠️  需要重启 OpenClaw 才能生效\n`));
+}
+
 // 切换配置（兼容旧版本，默认设置为默认配置）
 function switchConfig(name) {
   setDefaultConfig(name);
@@ -226,10 +336,24 @@ function deleteConfig(name) {
 // 交互式添加配置（使用 @clack/prompts）
 async function interactiveAdd() {
   console.clear();
-  intro(chalk.cyan.bold('🤖 Claude API Switcher - 添加新配置'));
+  intro(chalk.cyan.bold('🤖 API Switcher - 添加新配置'));
 
   const configs = readConfigs();
   const existingNames = configs.configs.map((c) => c.name);
+
+  // 选择目标平台
+  const target = await select({
+    message: '选择目标平台',
+    options: [
+      { value: 'claude', label: '🟣 Claude Code', hint: '修改 ~/.claude/settings.json' },
+      { value: 'openclaw', label: '🟠 OpenClaw', hint: '修改 ~/.openclaw/openclaw.json' },
+    ],
+  });
+
+  if (isCancel(target)) {
+    cancel('操作已取消');
+    process.exit(0);
+  }
 
   const name = await text({
     message: '📝 配置名称',
@@ -294,17 +418,76 @@ async function interactiveAdd() {
     baseUrl = customUrl;
   }
 
+  // OpenClaw 需要额外信息
+  let openclawProvider = '';
+  let openclawModel = '';
+  let openclawAlias = '';
+  if (target === 'openclaw') {
+    const providerKey = await text({
+      message: '🏷️  Provider Key（在 openclaw.json 中的键名）',
+      placeholder: '例如: custom-claude, custom-open-bigmodel-cn',
+      initialValue: `custom-${name}`,
+      validate: (value) => {
+        if (!value) return '请输入 Provider Key';
+      },
+    });
+
+    if (isCancel(providerKey)) {
+      cancel('操作已取消');
+      process.exit(0);
+    }
+    openclawProvider = providerKey;
+
+    const modelId = await text({
+      message: '🤖 模型 ID',
+      placeholder: '例如: Opus, GLM-5',
+      validate: (value) => {
+        if (!value) return '请输入模型 ID';
+      },
+    });
+
+    if (isCancel(modelId)) {
+      cancel('操作已取消');
+      process.exit(0);
+    }
+    openclawModel = modelId;
+
+    const aliasInput = await text({
+      message: '🏷️  模型别名（可选，直接回车跳过）',
+      placeholder: '例如: glm, opus',
+      initialValue: '',
+    });
+
+    if (isCancel(aliasInput)) {
+      cancel('操作已取消');
+      process.exit(0);
+    }
+    openclawAlias = aliasInput || '';
+  }
+
   // 显示配置摘要
-  const summary = `
+  let summaryLines = `
 📋 配置摘要:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━
+平台: ${target === 'claude' ? 'Claude Code' : 'OpenClaw'}
 名称: ${name}
 API Key: ${maskApiKey(apiKey)}
-Base URL: ${baseUrl}
-━━━━━━━━━━━━━━━━━━━━━━━━━━
-  `.trim();
+Base URL: ${baseUrl}`;
 
-  note(summary, '配置预览');
+  if (target === 'openclaw') {
+    summaryLines += `
+Provider Key: ${openclawProvider}
+模型 ID: ${openclawModel}`;
+    if (openclawAlias) {
+      summaryLines += `
+别名: ${openclawAlias}`;
+    }
+  }
+
+  summaryLines += `
+━━━━━━━━━━━━━━━━━━━━━━━━━━`;
+
+  note(summaryLines.trim(), '配置预览');
 
   const confirmAdd = await confirm({
     message: '确认添加此配置？',
@@ -316,7 +499,18 @@ Base URL: ${baseUrl}
     process.exit(0);
   }
 
-  await addConfig(name, apiKey, baseUrl);
+  // 保存配置，附带 target 和 openclaw 字段
+  const configsData = readConfigs();
+  configsData.configs.push({
+    name,
+    apiKey,
+    baseUrl: baseUrl || 'https://api.anthropic.com',
+    target: target,
+    ...(target === 'openclaw' ? { openclawProvider, openclawModel, ...(openclawAlias ? { openclawAlias } : {}) } : {}),
+    createdAt: new Date().toISOString(),
+  });
+  writeConfigs(configsData);
+  console.log(chalk.green(`✓ 配置 "${name}" 已添加！`));
 
   outro(chalk.green('✅ 配置添加成功！'));
 }
@@ -333,7 +527,7 @@ async function interactiveSwitch(isTemp = false, isDefault = false, isEval = fal
   }
 
   console.clear();
-  intro(chalk.cyan.bold('🔄 Claude API Switcher - 切换配置'));
+  intro(chalk.cyan.bold('🔄 API Switcher - 切换配置'));
 
   const configs = readConfigs();
 
@@ -342,10 +536,32 @@ async function interactiveSwitch(isTemp = false, isDefault = false, isEval = fal
     process.exit(0);
   }
 
-  const options = configs.configs.map((config) => ({
+  // 先选择目标平台
+  const target = await select({
+    message: '选择要切换的平台',
+    options: [
+      { value: 'claude', label: '🟣 Claude Code', hint: '~/.claude/settings.json' },
+      { value: 'openclaw', label: '🟠 OpenClaw', hint: '~/.openclaw/openclaw.json' },
+    ],
+  });
+
+  if (isCancel(target)) {
+    cancel('操作已取消');
+    process.exit(0);
+  }
+
+  // 过滤出对应平台的配置（兼容旧配置，无 target 字段默认为 claude）
+  const filteredConfigs = configs.configs.filter((c) => (c.target || 'claude') === target);
+
+  if (filteredConfigs.length === 0) {
+    outro(chalk.yellow(`暂无 ${target === 'claude' ? 'Claude' : 'OpenClaw'} 配置，请先添加。`));
+    process.exit(0);
+  }
+
+  const options = filteredConfigs.map((config) => ({
     value: config.name,
     label: `${config.name} ${configs.current === config.name ? '(当前默认)' : ''}`,
-    hint: maskApiKey(config.apiKey),
+    hint: `${maskApiKey(config.apiKey)}${config.openclawModel ? ` | ${config.openclawModel}` : ''}`,
   }));
 
   const selected = await select({
@@ -358,6 +574,32 @@ async function interactiveSwitch(isTemp = false, isDefault = false, isEval = fal
     process.exit(0);
   }
 
+  const config = configs.configs.find((c) => c.name === selected);
+
+  if (target === 'openclaw') {
+    // OpenClaw 只支持设为默认
+    setDefaultConfigOpenClaw(selected);
+    const info = `
+✅ 已设为 OpenClaw 默认配置
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+配置: ${selected}
+API Key: ${maskApiKey(config.apiKey)}
+Base URL: ${config.baseUrl}
+Provider: ${config.openclawProvider || `custom-${selected}`}
+模型: ${config.openclawModel || 'default'}
+
+💡 已更新文件:
+   ~/.openclaw/openclaw.json
+
+⚠️  需要重启 OpenClaw 才能生效
+    `.trim();
+
+    note(info);
+    outro('');
+    return;
+  }
+
+  // Claude 配置切换逻辑
   // 如果没有指定模式，让用户选择
   let mode = 'default';
   if (!isTemp && !isDefault) {
@@ -376,8 +618,6 @@ async function interactiveSwitch(isTemp = false, isDefault = false, isEval = fal
   } else if (isTemp) {
     mode = 'temp';
   }
-
-  const config = configs.configs.find((c) => c.name === selected);
 
   if (mode === 'temp') {
     useConfigTemp(selected, false);
@@ -461,31 +701,51 @@ async function interactiveDelete() {
 function showCurrentConfig() {
   const configs = readConfigs();
 
-  if (!configs.current) {
-    console.log(chalk.yellow('⚠️  当前没有选中的配置\n'));
-    console.log(chalk.gray('使用以下命令添加配置:'));
-    console.log(chalk.cyan('  claude-switch add -i\n'));
-    return;
+  // 显示 Claude 当前配置
+  const claudeSettings = readClaudeSettings();
+  const claudeApiKey = claudeSettings.env?.ANTHROPIC_AUTH_TOKEN;
+  const claudeBaseUrl = claudeSettings.env?.ANTHROPIC_BASE_URL;
+  const claudeConfig = configs.configs.find(
+    (c) => (c.target || 'claude') === 'claude' && c.apiKey === claudeApiKey && c.baseUrl === claudeBaseUrl
+  );
+
+  console.log(chalk.hex('#7C3AED').bold('\n🟣 Claude Code 当前配置'));
+  console.log(chalk.gray('━━━━━━━━━━━━━━━━━━━━━━━━━━'));
+  if (claudeConfig) {
+    console.log(`名称: ${claudeConfig.name}`);
+    console.log(`API Key: ${maskApiKey(claudeConfig.apiKey)}`);
+    console.log(`Base URL: ${claudeConfig.baseUrl}`);
+  } else if (claudeApiKey) {
+    console.log(`API Key: ${maskApiKey(claudeApiKey)}`);
+    console.log(`Base URL: ${claudeBaseUrl || '(默认)'}`);
+    console.log(chalk.gray('（未匹配到已保存的配置）'));
+  } else {
+    console.log(chalk.yellow('未配置'));
   }
 
-  const config = configs.configs.find((c) => c.name === configs.current);
-  if (!config) {
-    console.log(chalk.yellow('⚠️  当前配置不存在\n'));
-    return;
+  // 显示 OpenClaw 当前配置
+  const openclawSettings = readOpenClawSettings();
+  const primaryModel = openclawSettings.agents?.defaults?.model?.primary || '';
+  const [providerKey, modelId] = primaryModel.includes('/') ? primaryModel.split('/') : ['', ''];
+  const provider = openclawSettings.models?.providers?.[providerKey];
+
+  console.log(chalk.hex('#FF8C00').bold('\n🟠 OpenClaw 当前配置'));
+  console.log(chalk.gray('━━━━━━━━━━━━━━━━━━━━━━━━━━'));
+  if (provider) {
+    const openclawConfig = configs.configs.find(
+      (c) => c.target === 'openclaw' && c.openclawProvider === providerKey
+    );
+    if (openclawConfig) {
+      console.log(`名称: ${openclawConfig.name}`);
+    }
+    console.log(`主模型: ${primaryModel}`);
+    console.log(`API Key: ${maskApiKey(provider.apiKey)}`);
+    console.log(`Base URL: ${provider.baseUrl}`);
+  } else {
+    console.log(chalk.yellow('未配置'));
   }
 
-  const info = `
-🟢 当前配置
-━━━━━━━━━━━━━━━━━━━━━━━━━━
-名称: ${config.name}
-API Key: ${maskApiKey(config.apiKey)}
-Base URL: ${config.baseUrl}
-创建时间: ${new Date(config.createdAt).toLocaleString('zh-CN')}
-━━━━━━━━━━━━━━━━━━━━━━━━━━
-  `.trim();
-
-  console.log(chalk.cyan.bold(info));
-  console.log(chalk.gray('\n💡 环境变量文件位置: ~/.claude-switch-config/.claude-env'));
+  console.log('');
 }
 
 // 主程序
@@ -493,14 +753,14 @@ const program = new Command();
 
 program
   .name('zcs')
-  .description('🤖 Claude API 配置切换工具')
-  .version('1.0.0')
+  .description('🤖 Claude / OpenClaw API 配置切换工具')
+  .version('1.1.0')
   .addHelpText(
     'beforeAll',
     chalk.cyan.bold(`
-╔═══════════════════════════════════════╗
-║   Claude API Configuration Switcher   ║
-╚═══════════════════════════════════════╝
+╔══════════════════════════════════════════════╗
+║   Claude & OpenClaw API Config Switcher      ║
+╚══════════════════════════════════════════════╝
 `)
   )
   .addHelpText(
