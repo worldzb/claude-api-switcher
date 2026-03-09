@@ -17,6 +17,14 @@
   ],
   "author": "",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/worldzb/claude-api-switcher.git"
+  },
+  "homepage": "https://github.com/worldzb/claude-api-switcher#readme",
+  "bugs": {
+    "url": "https://github.com/worldzb/claude-api-switcher/issues"
+  },
   "dependencies": {
     "@clack/prompts": "^0.7.0",
     "commander": "^11.0.0",
