@@ -1,5 +1,5 @@
 {
-  "name": "zmai",
+  "name": "@worldzb/agent-sync",
   "version": "1.4.0",
   "description": "多 Agent history 工作台与 Claude API 配置管理命令行工具",
   "main": "./dist/index.js",
