@@ -1,157 +1,96 @@
-# Claude API Switcher (zcs)
+# ZMAI
 
-一个全局 CLI 工具，用于快速切换多个 Claude API 配置。
+`zmai` 是一个本机多 Agent 工作台：统一扫描 Claude Code、Codex 和 OpenCode，管理历史会话、跨 Agent 迁移、托管会话进度，以及 plugins、Skills、MCP。它同时保留 Claude API 配置切换能力。
 
-## 📦 安装
-
-```bash
-npm install -g claude-api-switcher
-```
-
-安装后即可使用 `zcs` 命令。
-
-## 📋 命令参考
-
-| 命令 | 别名 | 说明 |
-|------|------|------|
-| `add` | - | 添加新配置 |
-| `list` | `ls` | 列出所有配置 |
-| `switch` | `use` | 切换配置 |
-| `delete` | `rm` | 删除配置 |
-| `current` | - | 查看当前配置 |
-
-### 选项说明
-
-| 选项 | 说明 |
-|------|------|
-| `-i, --interactive` | 交互式模式 |
-| `-n, --name <name>` | 指定配置名称 |
-| `-t, --temp` | 临时使用模式 |
-| `--eval` | 输出 eval 可执行命令 |
-| `-k, --key <key>` | API Key |
-| `-u, --url <url>` | Base URL |
-
-## 🚀 快速开始
+## 安装
 
 ```bash
-# 1. 添加配置
-zcs add -i
-
-# 2. 临时切换（当前终端生效）
-eval $(zcs switch -n "配置名" -t --eval)
-
-# 3. 或设为默认（全局生效）
-zcs switch -n "配置名"
+npm install -g zmai
 ```
 
-### 推荐配置：添加 shell 函数
-
-在 `~/.zshrc` 或 `~/.bashrc` 中添加：
+## Agent 扫描
 
 ```bash
-use_claude() {
-  eval $(zcs switch -n "$1" -t --eval)
-}
+zmai agents
 ```
 
-使用：
+扫描命令、版本、历史目录以及 Claude Code、Codex、OpenCode 的可用能力。未安装或不在 `PATH` 的工具会明确标记为未安装。
+
+## 历史会话
+
 ```bash
-use_claude "官方API"
+zmai history
+zmai history --agent claude --page-size 30
+zmai history --plain
 ```
 
-## 📖 使用示例
+`zmai history` 在交互终端中使用 React + Ink 渲染：彩色 Agent 标识、会话标题、工作目录、相对时间和短会话 ID 会集中显示。快捷键：上下方向键选择、左右方向键翻页、Enter 打开操作、`r` 刷新、`q` 退出。非交互终端或 `--plain` 自动回退到文本分页输出。
 
-### 添加配置
+选中会话后选择用于继续的 Agent，默认是原 Agent：
+
+- 选择原 Agent：使用其原生命令续接会话。
+- 选择其他 Agent：创建新会话，导入转换后的历史上下文；原会话保持不变。
+
+## 当前窗口启动
+
+从 `zmai history` 选择续接或迁移后，zmai 会退出历史界面并在**当前终端窗口**直接启动目标 Agent，不依赖 `tmux`。退出 Agent 后会回到 shell。
+
+`zmai sessions`、`zmai watch` 与 `zmai stop` 仅用于旧版已创建的 tmux 托管会话。
+
+## 迁移会话
+
 ```bash
-# 交互式添加（推荐）
-zcs add -i
-
-# 命令行添加
-zcs add -n "官方API" -k "sk-ant-api03-xxx" -u "https://api.anthropic.com"
+zmai migrate codex:<session-id> --to claude
 ```
 
-### 列出配置
+迁移会：
+
+1. 读取来源会话并转换为可移植 Markdown 上下文；
+2. 复制可读取且不超过 20MB 的图片和文件到 `~/.zmai/migrations/`；
+3. 写入带 SHA-256 校验的迁移清单；
+4. 创建一个新的目标 Agent 会话。
+
+不会修改来源 Agent 的内部历史格式或删除原会话。无法读取的附件会显示迁移提示。
+
+## Plugins、Skills 与 MCP
+
 ```bash
-zcs list
+zmai integrations
+zmai integrations --agent claude --project /path/to/project
+zmai integrations --agent claude --install-plugin plugin@marketplace
+zmai integrations --remove claude:plugin:plugin-name
 ```
 
-### 切换配置
+命令汇总用户级和项目级 plugins、Skills、MCP。安装和移除前均需逐次确认；插件和 MCP 优先调用各 Agent 的原生命令。不会自动执行远程安装脚本。
 
-**临时切换**（当前终端生效，重启后恢复）：
+## Claude API 配置
+
 ```bash
-eval $(zcs switch -n "配置名" -t --eval)
+zmai add -n "官方 API" -k "sk-ant-api03-xxx" -u "https://api.anthropic.com"
+eval $(zmai switch -n "官方 API" -t --eval)
+zmai switch -n "官方 API"
 ```
 
-**设为默认**（全局生效，需重启 Claude Code）：
+## 数据位置
+
+| 数据 | 位置 |
+| --- | --- |
+| Claude API 配置 | `~/.claude-switch-config/claude-configs.json` |
+| 托管会话 | `~/.zmai/sessions.json` |
+| 托管会话输出 | `~/.zmai/logs/` |
+| 迁移上下文和附件 | `~/.zmai/migrations/` |
+
+## 开发
+
 ```bash
-zcs switch -n "配置名"
+npm install
+npm run check
+npm test
+npm run build
 ```
 
-**交互式切换**：
-```bash
-zcs switch -i
-```
+源码位于 `src/`，构建产物位于 `dist/`。
 
-### 删除配置
-```bash
-zcs delete -n "配置名"
-```
-
-## 💡 使用技巧
-
-### Tab 补全支持
-
-在 `~/.zshrc` 中添加：
-```bash
-use_claude() {
-  eval $(zcs switch -n "$1" -t --eval)
-}
-
-_use_claude() {
-  local -a configs
-  configs=($(zcs ls 2>/dev/null | grep '⚪\|🟢\|🔵' | awk '{print $2}' | sed 's/[(*]*.*[)]*//g'))
-  _describe 'configs' configs
-}
-compdef _use_claude use_claude
-```
-
-使用：
-```bash
-use_claude "官方<TAB>"  # 自动补全
-```
-
-### 不同场景建议
-
-**日常开发**：设为默认配置
-```bash
-zcs switch -n "官方API"
-```
-
-**临时测试**：快速临时切换
-```bash
-eval $(zcs switch -n "测试API" -t --eval)
-```
-
-**多项目切换**：使用 shell 函数
-```bash
-use_claude "项目A配置"
-use_claude "项目B配置"
-```
-
-## 📂 配置文件
-
-| 文件 | 位置 |
-|------|------|
-| 配置目录 | `~/.claude-switch-config/` |
-| 主配置 | `~/.claude-switch-config/claude-configs.json` |
-| Claude 配置 | `~/.claude/settings.json` |
-
-## 🔐 安全提示
-
-- API Key 以部分遮蔽方式显示
-- 建议设置 `chmod 700` 配置目录，`chmod 600` 配置文件
-- 定期备份 `~/.claude-switch-config/` 目录
-
-## 📄 许可证
+## 许可证
 
 MIT

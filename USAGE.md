@@ -1,59 +1,43 @@
-# 快速使用指南
-
-## 🚀 基础用法
-
-### 1. 添加配置
-```bash
-zcs add -i
-```
-
-### 2. 查看所有配置
-```bash
-zcs list
-```
-
-### 3. 临时切换（当前终端立即生效）
-```bash
-eval $(zcs switch -n "配置名" -t --eval)
-```
-
-### 4. 设为默认（需要重启 Claude Code）
-```bash
-zcs switch -n "配置名"
-```
-
-## 💡 推荐配置
-
-在 `~/.zshrc` 中添加以下函数，使用更方便：
+# ZMAI 快速使用
 
 ```bash
-# 临时切换 Claude API 配置
-use_claude() {
-  eval $(zcs switch -n "$1" -t --eval)
-}
+# 扫描 Claude Code、Codex、OpenCode
+zmai agents
+
+# 浏览 Ink 历史界面
+zmai history
+# ↑↓ 选择，←→ 翻页，Enter 操作，r 刷新，q 退出
+
+# 非交互或脚本环境使用文本输出
+zmai history --plain
+
+# 仅看某个 Agent 的历史
+zmai history --agent codex
+
+# 直接迁移到新的 Claude Code 会话
+zmai migrate codex:<session-id> --to claude
+
+# 选择会话后会在当前终端直接启动 Agent，不依赖 tmux
+# 退出 Agent 后会返回 shell
+
+# 浏览资源
+zmai integrations
+zmai integrations --agent opencode --project /path/to/project
+
+# 安装与移除资源（均会要求确认）
+zmai integrations --agent claude --install-plugin plugin@marketplace
+zmai integrations --remove codex:mcp:server-name
+
+# Claude API 配置
+zmai add -i
+zmai list
+eval $(zmai switch -n "配置名" -t --eval)
+zmai switch -n "配置名"
 ```
 
-使用示例：
-```bash
-source ~/.zshrc  # 重新加载配置
-use_claude "官方API"   # 临时切换到官方 API
-use_claude "代理API"   # 临时切换到代理 API
-```
+## 注意
 
-## 🔥 常用命令
-
-| 命令 | 说明 |
-|------|------|
-| `zcs add -i` | 交互式添加配置 |
-| `zcs list` | 列出所有配置 |
-| `zcs switch -i` | 交互式切换 |
-| `eval $(zcs switch -n "配置名" -t --eval)` | 临时切换 |
-| `zcs switch -n "配置名"` | 设为默认 |
-| `zcs current` | 查看当前配置 |
-| `zcs delete -n "配置名"` | 删除配置 |
-
-## 📝 配置文件位置
-
-- **主配置**：`~/.claude-switch-config/claude-configs.json`
-- **Claude 配置**：`~/.claude/settings.json`
-- **环境变量**：`~/.claude-switch-config/.claude-env`
+- 历史会话选择续接或迁移后会在当前终端直接启动目标 Agent，不依赖 `tmux`。
+- 跨 Agent 迁移通过新会话继续，保留原会话不变。
+- 图片与文件会复制到迁移目录；不可读取或超过 20MB 的附件会被跳过并记录提示。
+- 删除会话、安装插件、移除 plugin/Skill/MCP 都需要明确确认。
