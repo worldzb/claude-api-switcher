@@ -3,15 +3,16 @@ import { Box, Text, useApp, useInput, useStdout } from 'ink';
 
 import type { AgentId, LaunchSpec, SessionSummary } from '../../agents/types.js';
 import { filterSessionsByScope, type SessionScope } from '../session-scope.js';
-import { pageSessions } from '../session-service.js';
+import { pageSessions, searchSessions } from '../session-service.js';
 import { KeyHints } from './key-hints.js';
+import { SearchInput } from './search-input.js';
 import { SessionDetails } from './session-details.js';
 import { SessionList } from './session-list.js';
 import { agentColor, theme } from './theme.js';
 import { getVerticalNavigation } from './navigation.js';
 import { calculateVisibleSessionCount } from './viewport.js';
 
-type Screen = 'list' | 'actions' | 'agents' | 'confirm-delete' | 'result';
+type Screen = 'list' | 'search' | 'actions' | 'agents' | 'confirm-delete' | 'result';
 type Operation = 'resume' | 'migrate';
 type AgentFilter = 'all' | AgentId;
 
@@ -46,6 +47,7 @@ export function HistoryApp(props: HistoryAppProps): React.JSX.Element {
   const [loadingMessage, setLoadingMessage] = useState('正在准备历史扫描…');
   const [loadingError, setLoadingError] = useState('');
   const [pageNumber, setPageNumber] = useState(1);
+  const [query, setQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [screen, setScreen] = useState<Screen>('list');
   const [actionIndex, setActionIndex] = useState(0);
@@ -82,10 +84,11 @@ export function HistoryApp(props: HistoryAppProps): React.JSX.Element {
   const agentSessions = useMemo(() => agentFilter === 'all'
     ? scopedSessions
     : scopedSessions.filter((session) => session.agent === agentFilter), [scopedSessions, agentFilter]);
-  const page = useMemo(() => pageSessions(agentSessions, {
+  const searchedSessions = useMemo(() => searchSessions(agentSessions, query), [agentSessions, query]);
+  const page = useMemo(() => pageSessions(searchedSessions, {
     page: pageNumber,
     pageSize: props.pageSize,
-  }), [agentSessions, pageNumber, props.pageSize]);
+  }), [searchedSessions, pageNumber, props.pageSize]);
   const selected = page.items[Math.min(selectedIndex, Math.max(0, page.items.length - 1))];
   const visibleSessionCount = calculateVisibleSessionCount(stdout?.rows || 24);
   const availableAgents = props.agents.filter((agent) => agent.installed);
@@ -111,6 +114,13 @@ export function HistoryApp(props: HistoryAppProps): React.JSX.Element {
     setAgentFilter(nextFilter);
     setPageNumber(1);
     setSelectedIndex(0);
+  };
+
+  const applySearch = (): void => {
+    props.onClearScreen();
+    setPageNumber(1);
+    setSelectedIndex(0);
+    setScreen('list');
   };
 
   const cycleAgentFilter = (): void => {
@@ -145,6 +155,7 @@ export function HistoryApp(props: HistoryAppProps): React.JSX.Element {
     if (busy) return;
     if (screen === 'list') {
       if (input === 'q' || key.escape) return void exit();
+      if (input === '/') return setScreen('search');
       if (input === 'r') return void refreshSessions();
       if (key.tab) return toggleScope();
       if (key.leftArrow) return switchScope('current');
@@ -185,6 +196,7 @@ export function HistoryApp(props: HistoryAppProps): React.JSX.Element {
       }
       return;
     }
+    if (screen === 'search') return;
     if (screen === 'actions') {
       if (key.escape || input === 'b') return setScreen('list');
       if (key.upArrow) return setActionIndex((index) => Math.max(0, index - 1));
@@ -217,6 +229,7 @@ export function HistoryApp(props: HistoryAppProps): React.JSX.Element {
 
   if (loading) return <LoadingScreen message={loadingMessage} />;
   if (loadingError) return <LoadErrorScreen error={loadingError} />;
+  if (screen === 'search') return <SearchInput query={query} onChange={setQuery} onSubmit={applySearch} onCancel={() => setScreen('list')} />;
   if (!page.items.length) return <EmptyScreen scope={scope} onAllScope={() => switchScope('all')} />;
   if (screen === 'actions' && selected) return <ActionScreen session={selected} selectedIndex={actionIndex} />;
   if (screen === 'agents' && selected) return <AgentScreen session={selected} operation={operation} agents={availableAgents} selectedIndex={agentIndex} />;
@@ -226,12 +239,12 @@ export function HistoryApp(props: HistoryAppProps): React.JSX.Element {
   return <Box flexDirection="column" paddingX={1}>
     <Box justifyContent="space-between" borderStyle="round" borderColor={theme.accent} paddingX={1}>
       <Text bold color={theme.accent}>ZMAI · 历史会话</Text>
-      <Text color="gray">{page.total} 条 · 第 {page.page}/{page.totalPages} 页</Text>
+      <Text color="gray">{page.total} 条 · 第 {page.page}/{page.totalPages} 页{query ? ` · 搜索：${query}` : ''}</Text>
     </Box>
     <Tabs scope={scope} currentCount={currentSessions.length} allCount={sessions.length} />
     <AgentTabs selected={agentFilter} sessions={scopedSessions} />
     <SessionList sessions={page.items} selectedIndex={selectedIndex} columns={stdout?.columns || 80} visibleCount={visibleSessionCount} />
-    <KeyHints items={['↑↓ 选择（跨页）', 'Tab / ←→ 范围', '1 全部 2 Claude 3 Codex 4 OpenCode', 'Ctrl+U / Ctrl+D 或 - / = 翻页', 'Enter 操作', 'r 刷新', 'q 退出']} />
+    <KeyHints items={['↑↓ 选择（跨页）', '/ 搜索', 'Tab / ←→ 范围', '1 全部 2 Claude 3 Codex 4 OpenCode', 'Ctrl+U / Ctrl+D 或 - / = 翻页', 'Enter 操作', 'r 刷新', 'q 退出']} />
   </Box>;
 }
 

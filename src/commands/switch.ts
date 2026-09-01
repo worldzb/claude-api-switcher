@@ -23,9 +23,9 @@ interface SwitchOptions {
   readonly eval?: boolean;
 }
 
-export function registerSwitchCommand(program: Command, context: CommandContext): void {
+export function registerSwitchCommand(program: Command, context: CommandContext, commandName = 'switch'): void {
   program
-    .command('switch')
+    .command(commandName)
     .alias('use')
     .description('🔄 切换 Claude API 配置')
     .option('-i, --interactive', '交互式选择')

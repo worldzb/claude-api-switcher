@@ -13,9 +13,9 @@ interface AddOptions {
   readonly url?: string;
 }
 
-export function registerAddCommand(program: Command, context: CommandContext): void {
+export function registerAddCommand(program: Command, context: CommandContext, commandName = 'add'): void {
   program
-    .command('add')
+    .command(commandName)
     .description('➕ 添加新的 Claude API 配置')
     .option('-i, --interactive', '交互式添加（推荐）')
     .option('-n, --name <name>', '配置名称')

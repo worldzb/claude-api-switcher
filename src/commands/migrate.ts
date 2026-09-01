@@ -5,10 +5,12 @@ import type { Command } from 'commander';
 import type { AgentId } from '../agents/types.js';
 import { parseSessionId } from '../history/session-service.js';
 import { migrateAndLaunch } from './history.js';
+import { migrateIntegrations } from '../integrations/integration-migration.js';
 import type { CommandContext } from './context.js';
 
 interface MigrateOptions {
   readonly to?: AgentId;
+  readonly integrations?: boolean;
 }
 
 export function registerMigrateCommand(program: Command, context: CommandContext): void {
@@ -16,6 +18,7 @@ export function registerMigrateCommand(program: Command, context: CommandContext
     .command('migrate <session>')
     .description('🔀 将历史会话转换为新 Agent 会话')
     .option('--to <agent>', '目标 Agent：claude、codex、opencode')
+    .option('--integrations', '同时生成 plugins、Skills、MCP 迁移清单')
     .action(async (sessionId: string, options: MigrateOptions) => {
       const parsed = parseSessionId(sessionId);
       const source = context.agents.get(parsed.agent).listSessions().find((session) => session.id === parsed.id);
@@ -35,6 +38,12 @@ export function registerMigrateCommand(program: Command, context: CommandContext
       const [command, ...args] = result.launch.command;
       if (!command) throw new Error('启动命令为空。');
       console.log(chalk.gray('原会话未被修改。'));
+      if (options.integrations) {
+        const items = context.agents.get(parsed.agent).listIntegrations(source.cwd);
+        const transfer = migrateIntegrations(items, parsed.agent, target, context.migrationDirectory);
+        console.log(chalk.green(`集成迁移清单已生成：${transfer.directory}`));
+        if (transfer.warnings.length) console.log(chalk.yellow(transfer.warnings.join('；')));
+      }
       const { spawnSync } = await import('node:child_process');
       const launched = spawnSync(command, args, { cwd: result.launch.cwd, stdio: 'inherit' });
       if (launched.error) throw new Error(`无法启动 ${command}：${launched.error.message}`);

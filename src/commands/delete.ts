@@ -11,9 +11,9 @@ interface DeleteOptions {
   readonly name?: string;
 }
 
-export function registerDeleteCommand(program: Command, context: CommandContext): void {
+export function registerDeleteCommand(program: Command, context: CommandContext, commandName = 'delete'): void {
   program
-    .command('delete')
+    .command(commandName)
     .alias('rm')
     .description('🗑️ 删除配置')
     .option('-i, --interactive', '交互式删除')

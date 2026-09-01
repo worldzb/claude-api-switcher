@@ -12,4 +12,5 @@ export interface CommandContext {
   readonly managedSessions: ManagedSessionRepository;
   readonly sessionLauncher: SessionLauncher;
   readonly migrationService: MigrationService;
+  readonly migrationDirectory: string;
 }

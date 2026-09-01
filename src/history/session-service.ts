@@ -26,6 +26,14 @@ export function pageSessions(
   };
 }
 
+export function searchSessions(sessions: readonly SessionSummary[], query: string): readonly SessionSummary[] {
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+  if (!normalizedQuery) return sessions;
+
+  return sessions.filter((session) => [session.title, session.cwd, session.agent, session.id]
+    .some((value) => value.toLocaleLowerCase().includes(normalizedQuery)));
+}
+
 export function createSessionId(session: SessionSummary): string {
   return `${session.agent}:${encodeURIComponent(session.id)}`;
 }

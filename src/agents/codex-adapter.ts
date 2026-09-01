@@ -71,6 +71,23 @@ export class CodexAdapter extends AbstractFileAdapter {
     this.execute(['plugin', 'add', plugin]);
   }
 
+  installSkill(sourcePath: string, scope: 'user' | 'project', project?: string): void {
+    copySkill(sourcePath, path.join(scope === 'user' ? this.homeDirectory : project || process.cwd(), '.codex', 'skills'));
+  }
+
+  addMcp(name: string, configuration: string): void {
+    const parsed = JSON.parse(configuration) as { readonly url?: string; readonly command?: string; readonly args?: readonly string[] };
+    if (parsed.url) {
+      this.execute(['mcp', 'add', name, '--url', parsed.url]);
+      return;
+    }
+    if (parsed.command) {
+      this.execute(['mcp', 'add', name, '--', parsed.command, ...(parsed.args || [])]);
+      return;
+    }
+    throw new Error('Codex MCP 配置需要 url 或 command。');
+  }
+
   removeIntegration(item: IntegrationItem): void {
     if (item.kind === 'plugin') {
       this.execute(['plugin', 'remove', item.name]);
@@ -81,6 +98,11 @@ export class CodexAdapter extends AbstractFileAdapter {
       return;
     }
     this.removeLocalPath(item.location);
+  }
+
+  readMcpConfiguration(item: IntegrationItem): string {
+    if (item.kind !== 'mcp') throw new Error('只能复制 MCP 配置。');
+    return this.execute(['mcp', 'get', item.name, '--json']);
   }
 
   private listPlugins(): readonly IntegrationItem[] {
@@ -143,6 +165,14 @@ function toCommandItems(
     .map((line) => line.trim().split(/\s+/)[0])
     .filter((name): name is string => Boolean(name) && !/^(name|no|installed)/i.test(name))
     .map((name) => ({ agent, kind, name, scope: 'user' as const, location: `codex ${kind}`, removable: true }));
+}
+
+function copySkill(sourcePath: string, root: string): void {
+  if (!fs.existsSync(sourcePath) || !fs.statSync(sourcePath).isDirectory()) throw new Error(`Skill 目录不存在：${sourcePath}`);
+  fs.mkdirSync(root, { recursive: true });
+  const destination = path.join(root, path.basename(sourcePath));
+  if (fs.existsSync(destination)) throw new Error(`Skill 已存在：${destination}`);
+  fs.cpSync(sourcePath, destination, { recursive: true });
 }
 
 function findFiles(directory: string): readonly string[] {

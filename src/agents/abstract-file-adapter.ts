@@ -35,7 +35,17 @@ export abstract class AbstractFileAdapter implements AgentAdapter {
 
   abstract integrationRoots(project?: string): readonly { directory: string; scope: 'user' | 'project' }[];
   abstract installPlugin(plugin: string, scope: 'user' | 'project'): void;
+  abstract installSkill(sourcePath: string, scope: 'user' | 'project', project?: string): void;
+  abstract addMcp(name: string, configuration: string, scope: 'user' | 'project', project?: string): void;
   abstract removeIntegration(item: IntegrationItem): void;
+
+  readMcpConfiguration(_item: IntegrationItem): string {
+    throw new Error(`${this.name} 当前无法导出 MCP 配置。`);
+  }
+
+  setIntegrationEnabled(_item: IntegrationItem, _enabled: boolean): void {
+    throw new Error(`${this.name} 当前不支持启用或禁用该资源。`);
+  }
 
   protected execute(args: readonly string[], cwd?: string): string {
     const executable = findExecutable(this.command);

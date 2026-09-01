@@ -9,6 +9,9 @@ interface IntegrationOptions {
   readonly agent?: AgentId;
   readonly project?: string;
   readonly installPlugin?: string;
+  readonly installSkill?: string;
+  readonly addMcp?: string;
+  readonly mcpConfig?: string;
   readonly remove?: string;
   readonly scope?: 'user' | 'project';
 }
@@ -21,6 +24,9 @@ export function registerIntegrationsCommand(program: Command, context: CommandCo
     .option('-a, --agent <agent>', '筛选 Agent：claude、codex、opencode')
     .option('--project <path>', '包含项目级配置')
     .option('--install-plugin <plugin>', '安装插件')
+    .option('--install-skill <path>', '从本地目录安装 Skill')
+    .option('--add-mcp <name>', '添加 MCP 服务')
+    .option('--mcp-config <json>', 'MCP JSON 配置')
     .option('--remove <agent:kind:name>', '移除资源')
     .option('--scope <scope>', '安装范围：user、project', 'user')
     .action(async (options: IntegrationOptions) => {
@@ -35,6 +41,23 @@ export function registerIntegrationsCommand(program: Command, context: CommandCo
         if (isCancel(accepted) || !accepted) return;
         context.agents.get(agent).installPlugin(options.installPlugin, options.scope || 'user');
         console.log(chalk.green('插件安装命令已完成。'));
+        return;
+      }
+      if (options.installSkill) {
+        const agent = requireAgent(options.agent);
+        const accepted = await confirm({ message: `为 ${agent} 安装本地 Skill "${options.installSkill}"？`, initialValue: false });
+        if (isCancel(accepted) || !accepted) return;
+        context.agents.get(agent).installSkill(options.installSkill, options.scope || 'user', options.project);
+        console.log(chalk.green('Skill 安装完成。'));
+        return;
+      }
+      if (options.addMcp) {
+        const agent = requireAgent(options.agent);
+        if (!options.mcpConfig) throw new Error('--add-mcp 必须同时提供 --mcp-config。');
+        const accepted = await confirm({ message: `为 ${agent} 添加 MCP "${options.addMcp}"？`, initialValue: false });
+        if (isCancel(accepted) || !accepted) return;
+        context.agents.get(agent).addMcp(options.addMcp, options.mcpConfig, options.scope || 'user', options.project);
+        console.log(chalk.green('MCP 添加完成。'));
         return;
       }
       if (options.remove) {

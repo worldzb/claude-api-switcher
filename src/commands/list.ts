@@ -5,9 +5,9 @@ import { findActiveConfig, readClaudeSettings } from '../claude/settings.js';
 import { maskApiKey } from '../ui/output.js';
 import type { CommandContext } from './context.js';
 
-export function registerListCommand(program: Command, context: CommandContext): void {
+export function registerListCommand(program: Command, context: CommandContext, commandName = 'list'): void {
   program
-    .command('list')
+    .command(commandName)
     .alias('ls')
     .description('📋 列出所有 Claude 配置')
     .action(() => listConfigs(context));

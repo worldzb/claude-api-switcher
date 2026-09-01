@@ -20,6 +20,7 @@ async function main(): Promise<void> {
     managedSessions,
     sessionLauncher: new SessionLauncher(managedSessions, paths.zmaiDirectory),
     migrationService: new MigrationService(paths.migrationDirectory),
+    migrationDirectory: paths.migrationDirectory,
   });
   await program.parseAsync();
 }

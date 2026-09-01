@@ -93,11 +93,35 @@ export class OpenCodeAdapter extends AbstractFileAdapter {
     this.execute(['plugin', plugin, ...(scope === 'user' ? ['--global'] : [])]);
   }
 
+  installSkill(sourcePath: string, scope: 'user' | 'project', project?: string): void {
+    copySkill(sourcePath, path.join(scope === 'user' ? this.homeDirectory : project || process.cwd(), '.opencode', 'skills'));
+  }
+
+  addMcp(name: string, configuration: string, scope: 'user' | 'project', project?: string): void {
+    const parsed = parseMcpConfiguration(configuration);
+    if (!parsed.url && !parsed.command) throw new Error('OpenCode MCP 配置需要 url 或 command。');
+    const filePath = scope === 'project'
+      ? path.join(project || process.cwd(), 'opencode.json')
+      : path.join(this.homeDirectory, '.config', 'opencode', 'opencode.json');
+    updateOpenCodeMcpConfig(filePath, name, JSON.parse(configuration) as Record<string, unknown>);
+  }
+
   removeIntegration(item: IntegrationItem): void {
     if (item.kind === 'mcp' || (item.kind === 'plugin' && item.location.endsWith('.json'))) {
       throw new Error('当前 OpenCode 版本未提供该资源的安全移除命令；请在配置文件中手动移除。');
     }
     this.removeLocalPath(item.location);
+  }
+
+  readMcpConfiguration(item: IntegrationItem): string {
+    if (item.kind !== 'mcp' || !item.location.endsWith('.json')) {
+      throw new Error('OpenCode 当前只能复制配置文件中定义的 MCP。');
+    }
+    const parsed: unknown = JSON.parse(fs.readFileSync(item.location, 'utf8'));
+    const servers = isRecord(parsed) && isRecord(parsed.mcp) ? parsed.mcp : undefined;
+    const configuration = servers?.[item.name];
+    if (!configuration) throw new Error(`无法读取 MCP 配置：${item.name}`);
+    return JSON.stringify(configuration);
   }
 
   private listLocalPlugins(project?: string): readonly IntegrationItem[] {
@@ -162,6 +186,54 @@ export class OpenCodeAdapter extends AbstractFileAdapter {
   }
 }
 
+interface OpenCodeMcpConfiguration {
+  readonly url?: string;
+  readonly command?: string | readonly string[];
+  readonly args?: readonly string[];
+  readonly headers?: Readonly<Record<string, string>>;
+  readonly environment?: Readonly<Record<string, string>>;
+}
+
+function parseMcpConfiguration(configuration: string): {
+  readonly url?: string;
+  readonly command?: string;
+  readonly args: readonly string[];
+  readonly headers: readonly string[];
+  readonly environment: readonly string[];
+} {
+  let parsed: OpenCodeMcpConfiguration;
+  try {
+    parsed = JSON.parse(configuration) as OpenCodeMcpConfiguration;
+  } catch {
+    throw new Error('OpenCode MCP 配置必须是有效的 JSON。');
+  }
+  const command = Array.isArray(parsed.command) ? parsed.command[0] : parsed.command;
+  const args = Array.isArray(parsed.command) ? [...parsed.command.slice(1), ...(parsed.args || [])] : [...(parsed.args || [])];
+  return {
+    ...(parsed.url ? { url: parsed.url } : {}),
+    ...(command ? { command } : {}),
+    args,
+    headers: toKeyValueOptions(parsed.headers),
+    environment: toKeyValueOptions(parsed.environment),
+  };
+}
+
+function toKeyValueOptions(values: Readonly<Record<string, string>> | undefined): readonly string[] {
+  return values ? Object.entries(values).map(([key, value]) => `${key}=${value}`) : [];
+}
+
+function appendOptions(args: string[], option: string, values: readonly string[]): void {
+  values.forEach((value) => args.push(option, value));
+}
+
+function copySkill(sourcePath: string, root: string): void {
+  if (!fs.existsSync(sourcePath) || !fs.statSync(sourcePath).isDirectory()) throw new Error(`Skill 目录不存在：${sourcePath}`);
+  fs.mkdirSync(root, { recursive: true });
+  const destination = path.join(root, path.basename(sourcePath));
+  if (fs.existsSync(destination)) throw new Error(`Skill 已存在：${destination}`);
+  fs.cpSync(sourcePath, destination, { recursive: true });
+}
+
 function toSessions(value: unknown, agent: 'opencode'): readonly SessionSummary[] {
   const rows = Array.isArray(value) ? value : isRecord(value) && Array.isArray(value.sessions) ? value.sessions : [];
   return rows.filter(isRecord).flatMap((row): readonly SessionSummary[] => {
@@ -177,6 +249,18 @@ function toSessions(value: unknown, agent: 'opencode'): readonly SessionSummary[
       sourcePath: id,
     }];
   });
+}
+
+function updateOpenCodeMcpConfig(filePath: string, name: string, configuration: Record<string, unknown>): void {
+  let current: Record<string, unknown> = {};
+  if (fs.existsSync(filePath)) {
+    const parsed: unknown = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    if (isRecord(parsed)) current = parsed;
+  }
+  const servers = isRecord(current.mcp) ? current.mcp : {};
+  const next = { ...current, mcp: { ...servers, [name]: configuration } };
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, `${JSON.stringify(next, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
 }
 
 function collectMessages(value: unknown): readonly TranscriptMessage[] {

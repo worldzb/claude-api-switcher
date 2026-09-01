@@ -103,45 +103,70 @@ zmai history --plain --agent claude --page-size 30
 zmai migrate codex:<session-id> --to claude
 ```
 
-## Plugins、Skills 与 MCP
+## MCP、Skills 与 Plugins
+
+三个资源类型均采用与 `history` 一致的 React + Ink 交互界面：顶部显示资源类型和数量，第一行按范围切换，第二行按 Agent 分类，列表支持上下选择，`-` / `+` 翻页，Enter 打开操作菜单，选中资源可复制、启用/禁用或卸载，`q` 退出。
+
+- 左右方向键：当前项目 / 全局切换
+- `1` / `2`：当前项目 / 全局
+- `1` / `2` / `3` / `4`：全部 / Claude / Codex / OpenCode（在 Agent 分类上下文中）
+- `-` / `+`：上一页 / 下一页
+
+`mcps` 和 `skills` 默认显示“当前项目”；项目范围来自 `--project`，未指定时使用当前工作目录。
 
 ```bash
-# 查看全部 Agent 的资源
-zmai integrations
+# 查看资源（交互界面）
+zmai mcps
+zmai skills
+zmai plugins
 
-# 仅查看某个 Agent，并包含项目级资源
-zmai integrations --agent claude --project /path/to/project
+# 通过 Agent 分类查看
+# 1 全部 · 2 Claude · 3 Codex · 4 OpenCode
+zmai mcps --agent claude --project /path/to/project
+zmai skills --agent codex --project /path/to/project
+zmai plugins --agent opencode
 
-# 安装插件
-zmai integrations --agent claude --install-plugin plugin@marketplace
+# 安装资源（仍需确认）
+zmai mcps --agent claude --install github --config '{"command":"npx","args":["-y","server"]}'
+zmai skills --agent codex --install ./skills/my-skill --scope user
+zmai plugins --agent claude --install plugin@marketplace
 
-# 移除资源
-zmai integrations --remove claude:plugin:plugin-name
+# 移除资源（交互界面使用 x，命令行使用 --remove）
+zmai mcps --remove claude:github
+zmai skills --remove codex:my-skill
+zmai plugins --remove claude:plugin-name
 ```
 
-安装或移除前会要求明确确认。插件和 MCP 优先使用对应 Agent 的原生命令；不会自动执行未知远程脚本。
+脚本或管道中可使用 `--plain` 输出文本。不同 Agent 的配置格式和认证信息不会自动互相复制。
 
 ## Claude API 配置
 
+API 配置属于辅助功能，统一收拢在 `zmai api` 二级命令下：
+
 ```bash
 # 交互式添加配置
-zmai add -i
+zmai api add -i
 
 # 命令行添加配置
-zmai add -n "官方 API" -k "sk-ant-api03-xxx" -u "https://api.anthropic.com"
+zmai api add -n "官方 API" -k "sk-ant-api03-xxx" -u "https://api.anthropic.com"
 
 # 查看配置
-zmai list
+zmai api list
 
 # 当前终端临时使用
- eval $(zmai switch -n "官方 API" --temp --eval)
+ eval $(zmai api switch -n "官方 API" --temp --eval)
 
 # 设为 Claude Code 默认配置
-zmai switch -n "官方 API"
+zmai api switch -n "官方 API"
 
 # 查看当前 Claude 配置
-zmai current
+zmai api current
+
+# 删除配置
+zmai api delete -n "官方 API"
 ```
+
+API 配置不再作为一级命令提供。`list` 仍支持 `ls`，`switch` 仍支持 `use`，`delete` 仍支持 `rm`。
 
 默认配置会更新：
 

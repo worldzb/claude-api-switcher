@@ -5,9 +5,9 @@ import { findActiveConfig, readClaudeSettings } from '../claude/settings.js';
 import { maskApiKey } from '../ui/output.js';
 import type { CommandContext } from './context.js';
 
-export function registerCurrentCommand(program: Command, context: CommandContext): void {
+export function registerCurrentCommand(program: Command, context: CommandContext, commandName = 'current'): void {
   program
-    .command('current')
+    .command(commandName)
     .description('👀 查看当前 Claude 配置')
     .action(() => showCurrentConfig(context));
 }

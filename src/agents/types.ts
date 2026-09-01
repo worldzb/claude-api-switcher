@@ -66,6 +66,7 @@ export interface IntegrationItem {
   readonly scope: 'user' | 'project';
   readonly location: string;
   readonly removable: boolean;
+  readonly enabled?: boolean;
 }
 
 export interface AgentAdapter {
@@ -79,5 +80,9 @@ export interface AgentAdapter {
   deleteSession(session: SessionSummary): void;
   listIntegrations(project?: string): readonly IntegrationItem[];
   installPlugin(plugin: string, scope: 'user' | 'project'): void;
+  installSkill(sourcePath: string, scope: 'user' | 'project', project?: string): void;
+  addMcp(name: string, configuration: string, scope: 'user' | 'project', project?: string): void;
   removeIntegration(item: IntegrationItem): void;
+  readMcpConfiguration(item: IntegrationItem): string;
+  setIntegrationEnabled(item: IntegrationItem, enabled: boolean): void;
 }
