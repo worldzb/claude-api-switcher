@@ -8,6 +8,8 @@ export interface CommandContext {
   readonly repository: ConfigRepository;
   readonly claudeSettingsFile: string;
   readonly environmentFile: string;
+  readonly opencodeConfigFile: string;
+  readonly codexConfigFile: string;
   readonly agents: AgentRegistry;
   readonly managedSessions: ManagedSessionRepository;
   readonly sessionLauncher: SessionLauncher;

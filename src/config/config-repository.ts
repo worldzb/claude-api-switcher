@@ -9,7 +9,7 @@ export class ConfigRepository {
 
   read(): ConfigData {
     if (!fs.existsSync(this.filePath)) {
-      return { configs: [], current: null };
+      return { configs: [], current: null, customModels: { claude: [], opencode: [], codex: [] } };
     }
 
     try {

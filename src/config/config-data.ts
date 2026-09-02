@@ -1,10 +1,10 @@
-import type { ApiConfig, ConfigData } from './types.js';
+import type { AgentId, ApiConfig, ConfigData, CustomModels } from './types.js';
 
 const DEFAULT_BASE_URL = 'https://api.anthropic.com';
 
 export function normalizeConfigData(value: unknown): ConfigData {
   if (!isRecord(value) || !Array.isArray(value.configs)) {
-    return { configs: [], current: null };
+    return { configs: [], current: null, customModels: { claude: [], opencode: [], codex: [] } };
   }
 
   const configs = value.configs
@@ -15,8 +15,42 @@ export function normalizeConfigData(value: unknown): ConfigData {
   const current = typeof value.current === 'string' && configs.some((config) => config.name === value.current)
     ? value.current
     : null;
+  const customModels = normalizeCustomModels(value.customModels);
 
-  return { configs, current };
+  return { configs, current, customModels };
+}
+
+function normalizeCustomModels(value: unknown): CustomModels {
+  if (Array.isArray(value)) {
+    // 旧版扁平列表仅服务于 Claude，迁移为 claude 列表
+    return { claude: toStringList(value), opencode: [], codex: [] };
+  }
+  if (isRecord(value)) {
+    return {
+      claude: toStringList(value.claude),
+      opencode: toStringList(value.opencode),
+      codex: toStringList(value.codex),
+    };
+  }
+  return { claude: [], opencode: [], codex: [] };
+}
+
+function toStringList(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const models: string[] = [];
+  for (const item of value) {
+    if (typeof item !== 'string') {
+      continue;
+    }
+    const model = item.trim();
+    if (model && !models.includes(model)) {
+      models.push(model);
+    }
+  }
+  return models;
 }
 
 export function addConfig(data: ConfigData, config: ApiConfig): ConfigData {
@@ -33,6 +67,7 @@ export function deleteConfig(data: ConfigData, name: string): ConfigData {
   }
 
   return {
+    ...data,
     configs: data.configs.filter((config) => config.name !== name),
     current: data.current === name ? null : data.current,
   };
@@ -44,6 +79,52 @@ export function setCurrentConfig(data: ConfigData, name: string): ConfigData {
   }
 
   return { ...data, current: name };
+}
+
+export function addCustomModel(data: ConfigData, agent: AgentId, name: string): ConfigData {
+  const model = name.trim();
+  if (!model) {
+    throw new Error('请输入模型名称。');
+  }
+  if (data.customModels[agent].includes(model)) {
+    throw new Error(`模型 "${model}" 已存在。`);
+  }
+
+  return { ...data, customModels: { ...data.customModels, [agent]: [...data.customModels[agent], model] } };
+}
+
+export interface CustomModelsAddResult {
+  readonly data: ConfigData;
+  readonly added: readonly string[];
+  readonly existing: readonly string[];
+}
+
+export function addCustomModels(data: ConfigData, agent: AgentId, names: readonly string[]): CustomModelsAddResult {
+  let current = data;
+  const added: string[] = [];
+  const existing: string[] = [];
+  for (const raw of names) {
+    const model = raw.trim();
+    if (!model) {
+      continue;
+    }
+    if (current.customModels[agent].includes(model)) {
+      existing.push(model);
+      continue;
+    }
+    current = addCustomModel(current, agent, model);
+    added.push(model);
+  }
+  return { data: current, added, existing };
+}
+
+export function removeCustomModel(data: ConfigData, agent: AgentId, name: string): ConfigData {
+  const model = name.trim();
+  if (!data.customModels[agent].includes(model)) {
+    throw new Error(`自定义模型 "${model}" 不存在。`);
+  }
+
+  return { ...data, customModels: { ...data.customModels, [agent]: data.customModels[agent].filter((item) => item !== model) } };
 }
 
 export function getConfig(data: ConfigData, name: string): ApiConfig {

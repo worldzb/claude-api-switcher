@@ -30,6 +30,21 @@ describe('ConfigRepository', () => {
     expect(repository.read()).toEqual({
       current: null,
       configs: [{ name: 'Claude', apiKey: 'token', baseUrl: 'https://api.example.com' }],
+      customModels: { claude: [], opencode: [], codex: [] },
     });
+  });
+
+  it('写入后自定义模型列表不丢失', () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'zmai-'));
+    directories.push(directory);
+    const repository = new ConfigRepository(path.join(directory, 'claude-configs.json'));
+
+    repository.write({
+      configs: [],
+      current: null,
+      customModels: { claude: ['glm-4.6'], opencode: ['gpt-5.6', 'deepseek-chat'], codex: [] },
+    });
+
+    expect(repository.read().customModels).toEqual({ claude: ['glm-4.6'], opencode: ['gpt-5.6', 'deepseek-chat'], codex: [] });
   });
 });

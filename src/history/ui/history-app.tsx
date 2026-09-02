@@ -3,6 +3,7 @@ import { Box, Text, useApp, useInput, useStdout } from 'ink';
 
 import type { AgentId, LaunchSpec, SessionSummary } from '../../agents/types.js';
 import { filterSessionsByScope, type SessionScope } from '../session-scope.js';
+import { selectSessions, sessionSelectionKey, toggleSessionSelection } from '../session-selection.js';
 import { pageSessions, searchSessions } from '../session-service.js';
 import { KeyHints } from './key-hints.js';
 import { SearchInput } from './search-input.js';
@@ -12,7 +13,7 @@ import { agentColor, theme } from './theme.js';
 import { getVerticalNavigation } from './navigation.js';
 import { calculateVisibleSessionCount } from './viewport.js';
 
-type Screen = 'list' | 'search' | 'actions' | 'agents' | 'confirm-delete' | 'result';
+type Screen = 'list' | 'search' | 'actions' | 'agents' | 'confirm-delete' | 'confirm-bulk-delete' | 'result';
 type Operation = 'resume' | 'migrate';
 type AgentFilter = 'all' | AgentId;
 
@@ -32,6 +33,7 @@ export interface HistoryAppProps {
   readonly onResume: (session: SessionSummary, target: AgentId) => Promise<HistoryActionResult>;
   readonly onMigrate: (session: SessionSummary, target: AgentId) => Promise<HistoryActionResult>;
   readonly onDelete: (session: SessionSummary) => Promise<HistoryActionResult>;
+  readonly onDeleteMany: (sessions: readonly SessionSummary[]) => Promise<HistoryActionResult>;
   readonly onForegroundLaunch: (spec: LaunchSpec) => void;
   readonly onClearScreen: () => void;
 }
@@ -49,6 +51,7 @@ export function HistoryApp(props: HistoryAppProps): React.JSX.Element {
   const [pageNumber, setPageNumber] = useState(1);
   const [query, setQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const [selectedSessionKeys, setSelectedSessionKeys] = useState<ReadonlySet<string>>(() => new Set());
   const [screen, setScreen] = useState<Screen>('list');
   const [actionIndex, setActionIndex] = useState(0);
   const [agentIndex, setAgentIndex] = useState(0);
@@ -65,6 +68,7 @@ export function HistoryApp(props: HistoryAppProps): React.JSX.Element {
       setSessions(await loadSessionsRef.current(setLoadingMessage));
       setPageNumber(1);
       setSelectedIndex(0);
+      setSelectedSessionKeys(new Set());
     } catch (caught) {
       setLoadingError(caught instanceof Error ? caught.message : '加载历史会话失败。');
     } finally {
@@ -90,6 +94,10 @@ export function HistoryApp(props: HistoryAppProps): React.JSX.Element {
     pageSize: props.pageSize,
   }), [searchedSessions, pageNumber, props.pageSize]);
   const selected = page.items[Math.min(selectedIndex, Math.max(0, page.items.length - 1))];
+  const selectedSessions = useMemo(
+    () => sessions.filter((session) => selectedSessionKeys.has(sessionSelectionKey(session))),
+    [sessions, selectedSessionKeys],
+  );
   const visibleSessionCount = calculateVisibleSessionCount(stdout?.rows || 24);
   const availableAgents = props.agents.filter((agent) => agent.installed);
 
@@ -157,6 +165,9 @@ export function HistoryApp(props: HistoryAppProps): React.JSX.Element {
       if (input === 'q' || key.escape) return void exit();
       if (input === '/') return setScreen('search');
       if (input === 'r') return void refreshSessions();
+      if (input === ' ' && selected) return setSelectedSessionKeys((keys) => toggleSessionSelection(keys, selected));
+      if (key.ctrl && input === 'a') return setSelectedSessionKeys(selectSessions(searchedSessions));
+      if (input === 'x' && selectedSessions.length) return setScreen('confirm-bulk-delete');
       if (key.tab) return toggleScope();
       if (key.leftArrow) return switchScope('current');
       if (key.rightArrow) return switchScope('all');
@@ -220,6 +231,11 @@ export function HistoryApp(props: HistoryAppProps): React.JSX.Element {
       if (input === 'y' && selected) return void run(() => props.onDelete(selected));
       return;
     }
+    if (screen === 'confirm-bulk-delete') {
+      if (key.escape || input === 'n') return setScreen('list');
+      if (input === 'y' && selectedSessions.length) return void run(() => props.onDeleteMany(selectedSessions));
+      return;
+    }
     if (screen === 'result' && (key.return || key.escape || input === 'b')) {
       setScreen('list');
       setError('');
@@ -230,6 +246,7 @@ export function HistoryApp(props: HistoryAppProps): React.JSX.Element {
   if (loading) return <LoadingScreen message={loadingMessage} />;
   if (loadingError) return <LoadErrorScreen error={loadingError} />;
   if (screen === 'search') return <SearchInput query={query} onChange={setQuery} onSubmit={applySearch} onCancel={() => setScreen('list')} />;
+  if (screen === 'confirm-bulk-delete' && selectedSessions.length) return <ConfirmBulkDeleteScreen sessions={selectedSessions} />;
   if (!page.items.length) return <EmptyScreen scope={scope} onAllScope={() => switchScope('all')} />;
   if (screen === 'actions' && selected) return <ActionScreen session={selected} selectedIndex={actionIndex} />;
   if (screen === 'agents' && selected) return <AgentScreen session={selected} operation={operation} agents={availableAgents} selectedIndex={agentIndex} />;
@@ -239,12 +256,12 @@ export function HistoryApp(props: HistoryAppProps): React.JSX.Element {
   return <Box flexDirection="column" paddingX={1}>
     <Box justifyContent="space-between" borderStyle="round" borderColor={theme.accent} paddingX={1}>
       <Text bold color={theme.accent}>ZMAI · 历史会话</Text>
-      <Text color="gray">{page.total} 条 · 第 {page.page}/{page.totalPages} 页{query ? ` · 搜索：${query}` : ''}</Text>
+      <Text color="gray">{page.total} 条 · 第 {page.page}/{page.totalPages} 页{selectedSessions.length ? ` · 已选 ${selectedSessions.length}` : ''}{query ? ` · 搜索：${query}` : ''}</Text>
     </Box>
     <Tabs scope={scope} currentCount={currentSessions.length} allCount={sessions.length} />
     <AgentTabs selected={agentFilter} sessions={scopedSessions} />
-    <SessionList sessions={page.items} selectedIndex={selectedIndex} columns={stdout?.columns || 80} visibleCount={visibleSessionCount} />
-    <KeyHints items={['↑↓ 选择（跨页）', '/ 搜索', 'Tab / ←→ 范围', '1 全部 2 Claude 3 Codex 4 OpenCode', 'Ctrl+U / Ctrl+D 或 - / = 翻页', 'Enter 操作', 'r 刷新', 'q 退出']} />
+    <SessionList sessions={page.items} selectedIndex={selectedIndex} selectedSessionKeys={selectedSessionKeys} columns={stdout?.columns || 80} visibleCount={visibleSessionCount} />
+    <KeyHints items={['↑↓ 选择（跨页）', 'Space 多选', 'x 批量删除', '/ 搜索', 'Tab / ←→ 范围', '1 全部 2 Claude 3 Codex 4 OpenCode', 'Ctrl+U / Ctrl+D 或 - / = 翻页', 'Enter 操作', 'r 刷新', 'q 退出']} />
   </Box>;
 }
 
@@ -311,6 +328,19 @@ function AgentScreen({ session, operation, agents, selectedIndex }: { readonly s
 
 function ConfirmDeleteScreen({ session }: { readonly session: SessionSummary }): React.JSX.Element {
   return <Box flexDirection="column" padding={1} borderStyle="double" borderColor={theme.danger}><Text bold color={theme.danger}>永久删除会话？</Text><Text>{session.title}</Text><Text color="gray">{session.agent} · {session.id}</Text><KeyHints items={['y 确认删除', 'n / Esc 取消']} /></Box>;
+}
+
+function ConfirmBulkDeleteScreen({ sessions }: { readonly sessions: readonly SessionSummary[] }): React.JSX.Element {
+  const preview = sessions.slice(0, 5);
+  const remaining = sessions.length - preview.length;
+  return <Box flexDirection="column" padding={1} borderStyle="double" borderColor={theme.danger}>
+    <Text bold color={theme.danger}>永久删除已选的 {sessions.length} 个会话？</Text>
+    <Box flexDirection="column" marginTop={1}>
+      {preview.map((session) => <Text key={sessionSelectionKey(session)}>{session.agent} · {session.title}</Text>)}
+      {remaining > 0 && <Text color="gray">… 以及另外 {remaining} 个会话</Text>}
+    </Box>
+    <KeyHints items={['y 确认删除', 'n / Esc 取消']} />
+  </Box>;
 }
 
 function ResultScreen({ message, error }: { readonly message: string; readonly error: string }): React.JSX.Element {

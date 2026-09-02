@@ -8,6 +8,7 @@ import React from 'react';
 import chalk from 'chalk';
 import type { Command } from 'commander';
 
+import { launchCommand } from '../agents/process-runner.js';
 import type { AgentId, LaunchSpec, SessionSummary } from '../agents/types.js';
 import { pageSessions } from '../history/session-service.js';
 import { HistoryApp } from '../history/ui/history-app.js';
@@ -56,6 +57,7 @@ async function runInkHistory(context: CommandContext, agent: AgentId | undefined
     onResume={async (session) => resumeSession(context, session)}
     onMigrate={async (session, target) => migrateAndLaunch(context, session, target, true)}
     onDelete={async (session) => deleteSession(context, session)}
+    onDeleteMany={async (sessions) => deleteSessions(context, sessions)}
     onForegroundLaunch={(spec) => { foregroundLaunch = spec; }}
     onClearScreen={() => clearScreen()}
   />);
@@ -127,6 +129,26 @@ async function deleteSession(context: CommandContext, session: SessionSummary): 
   return { message: `已删除 ${session.agent} 会话：${session.title}` };
 }
 
+export async function deleteSessions(context: Pick<CommandContext, 'agents'>, sessions: readonly SessionSummary[]): Promise<{ readonly message: string }> {
+  const failures: string[] = [];
+  let deleted = 0;
+  for (const session of sessions) {
+    try {
+      context.agents.get(session.agent).deleteSession(session);
+      deleted += 1;
+    } catch (caught) {
+      const reason = caught instanceof Error ? caught.message : '未知错误';
+      failures.push(`${session.agent}:${session.id}（${reason}）`);
+    }
+  }
+  if (failures.length) {
+    const preview = failures.slice(0, 3).join('；');
+    const remaining = failures.length - Math.min(failures.length, 3);
+    throw new Error(`已删除 ${deleted}/${sessions.length} 个会话；${preview}${remaining ? `；另有 ${remaining} 个删除失败` : ''}`);
+  }
+  return { message: `已删除 ${deleted} 个会话。` };
+}
+
 export async function migrateAndLaunch(
   context: CommandContext,
   session: SessionSummary,
@@ -169,9 +191,8 @@ function copyHistoryToClipboard(history: string): void {
 function launchInCurrentTerminal(spec: LaunchSpec): void {
   const [command, ...args] = spec.command;
   if (!command) throw new Error('启动命令为空。');
-  const result = spawnSync(command, args, { cwd: spec.cwd, stdio: 'inherit' });
-  if (result.error) throw new Error(`无法启动 ${command}：${result.error.message}`);
-  if (result.status && result.status !== 0) process.exitCode = result.status;
+  const status = launchCommand(command, args, spec.cwd);
+  if (status && status !== 0) process.exitCode = status;
 }
 
 function parsePositiveInteger(value: string | undefined, fallback: number, option: string): number {

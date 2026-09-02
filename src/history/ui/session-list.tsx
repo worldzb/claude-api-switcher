@@ -2,18 +2,21 @@ import React from 'react';
 import { Box, Text } from 'ink';
 
 import type { SessionSummary } from '../../agents/types.js';
+import { sessionSelectionKey } from '../session-selection.js';
 import { formatSessionRow, relativeTime } from './formatters.js';
-import { agentColor } from './theme.js';
+import { agentColor, theme } from './theme.js';
 import { getViewport } from './viewport.js';
 
 export function SessionList({
   sessions,
   selectedIndex,
+  selectedSessionKeys,
   columns,
   visibleCount,
 }: {
   readonly sessions: readonly SessionSummary[];
   readonly selectedIndex: number;
+  readonly selectedSessionKeys: ReadonlySet<string>;
   readonly columns: number;
   readonly visibleCount: number;
 }): React.JSX.Element {
@@ -26,10 +29,11 @@ export function SessionList({
       const index = viewport.start + offset;
       const row = formatSessionRow(session, Math.max(32, columns - 24));
       const selected = index === selectedIndex;
+      const marked = selectedSessionKeys.has(sessionSelectionKey(session));
       return <Box key={`${session.agent}-${session.sourcePath}`} flexDirection="column" paddingX={1}>
         <Box gap={1}>
           <Text color={agentColor(session.agent)} bold>{row.agent.padEnd(8)}</Text>
-          <Text bold inverse={selected}>{selected ? `› ${row.title}` : `  ${row.title}`}</Text>
+          <Text bold inverse={selected} color={marked ? theme.accent : undefined}>{selected ? `› ${row.title}` : `${marked ? '✓' : ' '} ${row.title}`}</Text>
           <Text color="gray">{relativeTime(session.updatedAt)}</Text>
         </Box>
         <Box gap={2} paddingLeft={9}>

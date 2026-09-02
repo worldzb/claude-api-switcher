@@ -53,7 +53,7 @@ export class CodexAdapter extends AbstractFileAdapter {
   }
 
   deleteSession(session: SessionSummary): void {
-    this.execute(['delete', '--force', session.id], session.cwd);
+    this.execute(['delete', '--force', session.id]);
   }
 
   integrationRoots(project?: string) {

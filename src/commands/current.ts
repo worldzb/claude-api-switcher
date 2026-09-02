@@ -1,6 +1,7 @@
 import chalk from 'chalk';
 import type { Command } from 'commander';
 
+import { findCurrentModel } from '../claude/models.js';
 import { findActiveConfig, readClaudeSettings } from '../claude/settings.js';
 import { maskApiKey } from '../ui/output.js';
 import type { CommandContext } from './context.js';
@@ -32,5 +33,6 @@ function showCurrentConfig(context: CommandContext): void {
   } else {
     console.log(chalk.yellow('未配置'));
   }
+  console.log(`模型: ${findCurrentModel(settings) ?? '官方默认'}`);
   console.log('');
 }

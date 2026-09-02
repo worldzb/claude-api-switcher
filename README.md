@@ -27,6 +27,7 @@ npm install -g @worldzb/zmai
 | 附件迁移 | 复制可读取的图片/文件，生成带校验值的迁移清单 |
 | 集成管理 | 查看 plugins、Skills、MCP，并调用 Agent 原生命令安装或移除 |
 | API 配置 | 管理 Claude API Key、Base URL、默认配置和临时环境变量 |
+| 模型同步 | `zmai model` 把配置中的自定义模型批量设置到各 Agent，或恢复系统默认撤回配置 |
 
 ## 扫描 Agent
 
@@ -64,6 +65,8 @@ zmai history
 - `Ctrl+U` 或 `-`：上一页
 - `Ctrl+D` 或 `=`：下一页
 - `Enter`：打开会话操作
+- `Space`：选中或取消选中当前会话；可跨页多选
+- `x`：永久删除所有已选会话（需二次确认）
 - `r`：重新扫描本地历史
 - `q`：退出
 
@@ -175,11 +178,50 @@ API 配置不再作为一级命令提供。`list` 仍支持 `ls`，`switch` 仍�
 ~/.claude-switch-config/.claude-env
 ```
 
+## 模型同步
+
+`zmai model` 把配置（`~/.claude-switch-config/claude-configs.json` 的 `customModels`）中的自定义模型批量设置到各 Agent；恢复系统默认则撤回这些配置：
+
+```bash
+# 交互式：先选择 Agent，再选择「同步」或「恢复默认」
+zmai model
+
+# 直接指定 Agent（跳过 Agent 选择）
+zmai model -a opencode   # 别名 --agent
+zmai model -a claude
+zmai model -a codex
+zmai model -a all        # 依次处理全部 Agent
+
+# 恢复系统默认：撤回已同步的模型配置
+zmai model --reset -a claude
+zmai model --reset       # 交互式选择要恢复默认的 Agent
+```
+
+各 Agent 的同步方式：
+
+- **Claude Code**：把配置中的 **claude 模型**批量写入 `~/.claude/settings.json` 的 `modelPicker`，全部出现在 Claude Code 的 `/model` 选择器中（追加在内置模型之后；需 Claude Code ≥ 2.1.242，旧版本自动忽略该字段）。激活哪个模型由你在 Claude Code 里用 `/model` 自己选择：`Enter` 保存为默认（写入同一文件的 `model` 字段），`s` 仅当前会话生效。zmai 不再替你设置单个模型。
+- **OpenCode**：把配置中的自定义模型一次性注册到 `opencode.jsonc` 的 `provider.wxhand.models`（形如 `wxhand/gpt-5.6`）。claude 模型**不会**同步到 OpenCode（wxhand 中转接口不支持）。已注册的跳过（保留原有定义），只补充缺失的，不删除任何现有模型。
+- **Codex**：把配置中的 **codex 模型**批量写入 `~/.codex/zmai-models.json`，并在 `config.toml` 挂载 `model_catalog_json`，全部出现在 Codex 的 `/model` 选择器中（与官方内置模型并列显示；与内置重复的自动跳过，并为自定义模型克隆官方提示词模板）。激活哪个模型由你在 Codex 里用 `/model` 自己选择。需要 Codex CLI ≥ 0.152；检测不到可用的 codex 命令时仅同步自定义模型（内置列表会被替换）。
+
+恢复系统默认（`--reset` 或交互式选择「恢复系统默认」）会撤回 zmai 同步的配置：
+
+- **Claude Code**：清除 `model` 与 `modelPicker`。
+- **OpenCode**：移除配置列表中已注册到 `provider.wxhand.models` 的模型（手动注册的不受影响），顶层 `model` 若指向被移除的模型则一并清除；provider 的 baseURL / apiKey 保留。
+- **Codex**：移除 `model` 行与 `model_catalog_json` 挂载，删除 `zmai-models.json`，官方内置模型回归 `/model` 选择器。
+
+同步与恢复后均需重启对应 Agent 生效（已运行的会话不会感知变更）。
+
+说明：
+
+- 自定义模型列表统一保存在 `~/.claude-switch-config/claude-configs.json` 的 `customModels`（claude / opencode / codex 三个列表），按需编辑后重新执行 `zmai model` 同步。
+- OpenCode 写入会重排 JSON 格式（注释会丢失），请提前备份有注释的配置；模型挂在自定义的 `wxhand` provider 下（走中转接口），**不支持 claude 模型**。
+- Codex 写入只在 `config.toml` 顶层新增/替换 `model_catalog_json` 行（其余内容原样保留），模型目录保存在同目录的 `zmai-models.json`；该目录会整体替换 Codex 内置模型列表，因此同步时已自动合并内置条目。
+
 ## 数据目录
 
 | 数据 | 路径 |
 | --- | --- |
-| Claude API 配置 | `~/.claude-switch-config/claude-configs.json` |
+| Claude API 配置 | `~/.claude-switch-config/claude-configs.json`（含 Claude / OpenCode / Codex 的自定义模型列表） |
 | 临时环境变量 | `~/.claude-switch-config/.claude-env` |
 | Claude Code 设置 | `~/.claude/settings.json` |
 | 会话迁移上下文与附件 | `~/.zmai/migrations/` |

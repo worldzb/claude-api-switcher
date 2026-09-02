@@ -2,6 +2,7 @@ import { cancel, confirm, isCancel, select } from '@clack/prompts';
 import chalk from 'chalk';
 import type { Command } from 'commander';
 
+import { launchCommand } from '../agents/process-runner.js';
 import type { AgentId } from '../agents/types.js';
 import { parseSessionId } from '../history/session-service.js';
 import { migrateAndLaunch } from './history.js';
@@ -44,9 +45,7 @@ export function registerMigrateCommand(program: Command, context: CommandContext
         console.log(chalk.green(`集成迁移清单已生成：${transfer.directory}`));
         if (transfer.warnings.length) console.log(chalk.yellow(transfer.warnings.join('；')));
       }
-      const { spawnSync } = await import('node:child_process');
-      const launched = spawnSync(command, args, { cwd: result.launch.cwd, stdio: 'inherit' });
-      if (launched.error) throw new Error(`无法启动 ${command}：${launched.error.message}`);
+      launchCommand(command, args, result.launch.cwd);
     });
 }
 
