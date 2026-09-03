@@ -7,10 +7,10 @@
 ## 安装
 
 ```bash
-npm install -g @worldzb/zmai
+npm install -g @worldzb/agent-sync
 ```
 
-安装后使用 `zmai` 命令。
+包名为 `@worldzb/agent-sync`，安装后仍使用 `zmai` 命令。
 
 > 需要 Node.js 18 或更高版本。
 
@@ -237,6 +237,26 @@ npm run build
 ```
 
 源码在 `src/`，构建产物在 `dist/`。
+
+### 发布
+
+发布前确保 `package.json` 与 `package-lock.json` 中的包名和版本一致；如有变更，执行：
+
+```bash
+npm install --package-lock-only
+npm run check
+npm test
+npm publish --access public --registry=https://registry.npmjs.org/
+```
+
+发布账号须拥有 `@worldzb` scope 的发布权限。首次在机器上发布前，先执行：
+
+```bash
+npm login --registry=https://registry.npmjs.org/
+npm whoami --registry=https://registry.npmjs.org/
+```
+
+`whoami` 应显示有权发布该 scope 的 npm 账号。
 
 ## 许可证
 

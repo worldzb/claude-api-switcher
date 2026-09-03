@@ -172,8 +172,24 @@ function createModelEntry(id: string): Record<string, unknown> {
     name: id,
     limit: { context: 400000, output: 128000 },
     options: { store: false },
-    variants: { low: {}, medium: {}, high: {}, xhigh: {} },
+    variants: variantsFor(id),
   };
+}
+
+/** opencode 各模型族的思考档位（reasoning effort levels），依据 models.dev 的 reasoning_options 而定。 */
+const FAMILY_VARIANTS: Readonly<Record<string, readonly string[]>> = {
+  deepseek: ['low', 'high', 'max'],
+  glm: ['low', 'high', 'max'],
+};
+
+/** 未匹配模型族的 GPT 系默认四档。 */
+const DEFAULT_VARIANTS: readonly string[] = ['low', 'medium', 'high', 'xhigh'];
+
+function variantsFor(id: string): Record<string, unknown> {
+  const name = id.toLowerCase();
+  const family = Object.keys(FAMILY_VARIANTS).find((key) => name.includes(key));
+  const levels = family ? FAMILY_VARIANTS[family] : DEFAULT_VARIANTS;
+  return Object.fromEntries(levels.map((level) => [level, {}]));
 }
 
 export function stripJsoncComments(source: string): string {

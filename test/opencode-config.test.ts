@@ -175,7 +175,7 @@ describe('批量注册模型（同步）', () => {
       name: 'gpt-glm',
       limit: { context: 400000, output: 128000 },
       options: { store: false },
-      variants: { low: {}, medium: {}, high: {}, xhigh: {} },
+      variants: { low: {}, high: {}, max: {} },
     });
     expect((entry.options as Record<string, unknown>).baseURL).toBe('https://api.example.com');
     expect(listProviderModels(config)).toEqual(['gpt-5.5']);
@@ -187,6 +187,18 @@ describe('批量注册模型（同步）', () => {
     expect(result.existing).toEqual([]);
     expect((result.config as Record<string, unknown>).theme).toBe('dark');
     expect(listProviderModels(result.config)).toEqual(['gpt-5.6']);
+  });
+
+  it('deepseek 模型写入 low/high/max 三档', () => {
+    const result = registerProviderModels({}, ['gpt-deepseek-v4-pro']);
+
+    const entry = (result.config.provider as Record<string, unknown>).wxhand as Record<string, unknown>;
+    expect((entry.models as Record<string, unknown>)['gpt-deepseek-v4-pro']).toEqual({
+      name: 'gpt-deepseek-v4-pro',
+      limit: { context: 400000, output: 128000 },
+      options: { store: false },
+      variants: { low: {}, high: {}, max: {} },
+    });
   });
 
   it('可注册到指定的其他 provider', () => {
