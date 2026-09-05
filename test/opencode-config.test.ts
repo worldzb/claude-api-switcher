@@ -106,7 +106,7 @@ describe('OpenCode 模型切换', () => {
       name: 'gpt-5.6-terra',
       limit: { context: 400000, output: 128000 },
       options: { store: false },
-      variants: { low: {}, medium: {}, high: {}, xhigh: {} },
+      variants: { none: {}, low: {}, medium: {}, high: {}, xhigh: {}, max: {} },
     });
     expect((entry.options as Record<string, unknown>).baseURL).toBe('https://api.example.com');
     expect(listProviderModels(config)).toEqual(['gpt-5.2']);
@@ -189,7 +189,7 @@ describe('批量注册模型（同步）', () => {
     expect(listProviderModels(result.config)).toEqual(['gpt-5.6']);
   });
 
-  it('deepseek 模型写入 low/high/max 三档', () => {
+  it('deepseek-v4-pro 写入 high/max 两档', () => {
     const result = registerProviderModels({}, ['gpt-deepseek-v4-pro']);
 
     const entry = (result.config.provider as Record<string, unknown>).wxhand as Record<string, unknown>;
@@ -197,8 +197,26 @@ describe('批量注册模型（同步）', () => {
       name: 'gpt-deepseek-v4-pro',
       limit: { context: 400000, output: 128000 },
       options: { store: false },
-      variants: { low: {}, high: {}, max: {} },
+      variants: { high: {}, max: {} },
     });
+  });
+
+  it('不同模型的档位按模型一一对应', () => {
+    const result = registerProviderModels({}, [
+      'gpt-deepseek-v4-flash',
+      'gpt-glm-5.2',
+      'gpt-glm-5.3',
+      'gpt-5.6',
+      'gpt-image-2',
+    ]);
+
+    const models = (result.config.provider as Record<string, unknown>).wxhand as Record<string, unknown>;
+    const getVariants = (id: string) => (models.models as Record<string, unknown>)[id] as { variants: Record<string, unknown> };
+    expect(Object.keys(getVariants('gpt-deepseek-v4-flash').variants)).toEqual(['low', 'high', 'max']);
+    expect(Object.keys(getVariants('gpt-glm-5.2').variants)).toEqual(['high', 'max']);
+    expect(Object.keys(getVariants('gpt-glm-5.3').variants)).toEqual(['low', 'high', 'max']);
+    expect(Object.keys(getVariants('gpt-5.6').variants)).toEqual(['none', 'low', 'medium', 'high', 'xhigh', 'max']);
+    expect(Object.keys(getVariants('gpt-image-2').variants)).toEqual([]);
   });
 
   it('可注册到指定的其他 provider', () => {
@@ -284,7 +302,7 @@ describe('配置文件定位与写入', () => {
               name: 'gpt-5.6',
               limit: { context: 400000, output: 128000 },
               options: { store: false },
-              variants: { low: {}, medium: {}, high: {}, xhigh: {} },
+              variants: { none: {}, low: {}, medium: {}, high: {}, xhigh: {}, max: {} },
             },
           },
         },
