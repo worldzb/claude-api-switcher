@@ -58,6 +58,7 @@ async function runInkHistory(context: CommandContext, agent: AgentId | undefined
     onMigrate={async (session, target) => migrateAndLaunch(context, session, target, true)}
     onDelete={async (session) => deleteSession(context, session)}
     onDeleteMany={async (sessions) => deleteSessions(context, sessions)}
+    readTranscript={(session) => context.agents.get(session.agent).readTranscript(session)}
     onForegroundLaunch={(spec) => { foregroundLaunch = spec; }}
     onClearScreen={() => clearScreen()}
   />);

@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Box, Text, useApp, useInput, useStdout } from 'ink';
 
-import type { AgentId, LaunchSpec, SessionSummary } from '../../agents/types.js';
+import type { AgentId, LaunchSpec, PortableTranscript, SessionSummary } from '../../agents/types.js';
 import { filterSessionsByScope, type SessionScope } from '../session-scope.js';
 import { selectSessions, sessionSelectionKey, toggleSessionSelection } from '../session-selection.js';
 import { pageSessions, searchSessions } from '../session-service.js';
@@ -9,6 +9,7 @@ import { KeyHints } from './key-hints.js';
 import { SearchInput } from './search-input.js';
 import { SessionDetails } from './session-details.js';
 import { SessionList } from './session-list.js';
+import { SessionPreview } from './session-preview.js';
 import { agentColor, theme } from './theme.js';
 import { getVerticalNavigation } from './navigation.js';
 import { calculateVisibleSessionCount } from './viewport.js';
@@ -34,6 +35,7 @@ export interface HistoryAppProps {
   readonly onMigrate: (session: SessionSummary, target: AgentId) => Promise<HistoryActionResult>;
   readonly onDelete: (session: SessionSummary) => Promise<HistoryActionResult>;
   readonly onDeleteMany: (sessions: readonly SessionSummary[]) => Promise<HistoryActionResult>;
+  readonly readTranscript: (session: SessionSummary) => PortableTranscript;
   readonly onForegroundLaunch: (spec: LaunchSpec) => void;
   readonly onClearScreen: () => void;
 }
@@ -56,6 +58,7 @@ export function HistoryApp(props: HistoryAppProps): React.JSX.Element {
   const [actionIndex, setActionIndex] = useState(0);
   const [agentIndex, setAgentIndex] = useState(0);
   const [operation, setOperation] = useState<Operation>('resume');
+  const [preview, setPreview] = useState<PortableTranscript>();
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState('');
   const [error, setError] = useState('');
@@ -202,8 +205,14 @@ export function HistoryApp(props: HistoryAppProps): React.JSX.Element {
         return setSelectedIndex(next.selectedIndex);
       }
       if (key.return && selected) {
-        setActionIndex(0);
-        return setScreen('actions');
+        try {
+          setPreview(props.readTranscript(selected));
+          setActionIndex(0);
+          return setScreen('actions');
+        } catch (caught) {
+          setError(caught instanceof Error ? caught.message : '无法读取会话预览。');
+          return setScreen('result');
+        }
       }
       return;
     }
@@ -248,7 +257,7 @@ export function HistoryApp(props: HistoryAppProps): React.JSX.Element {
   if (screen === 'search') return <SearchInput query={query} onChange={setQuery} onSubmit={applySearch} onCancel={() => setScreen('list')} />;
   if (screen === 'confirm-bulk-delete' && selectedSessions.length) return <ConfirmBulkDeleteScreen sessions={selectedSessions} />;
   if (!page.items.length) return <EmptyScreen scope={scope} onAllScope={() => switchScope('all')} />;
-  if (screen === 'actions' && selected) return <ActionScreen session={selected} selectedIndex={actionIndex} />;
+  if (screen === 'actions' && selected) return <ActionScreen session={selected} transcript={preview} selectedIndex={actionIndex} />;
   if (screen === 'agents' && selected) return <AgentScreen session={selected} operation={operation} agents={availableAgents} selectedIndex={agentIndex} />;
   if (screen === 'confirm-delete' && selected) return <ConfirmDeleteScreen session={selected} />;
   if (screen === 'result') return <ResultScreen message={result} error={error} />;
@@ -260,7 +269,7 @@ export function HistoryApp(props: HistoryAppProps): React.JSX.Element {
     </Box>
     <Tabs scope={scope} currentCount={currentSessions.length} allCount={sessions.length} />
     <AgentTabs selected={agentFilter} sessions={scopedSessions} />
-    <SessionList sessions={page.items} selectedIndex={selectedIndex} selectedSessionKeys={selectedSessionKeys} columns={stdout?.columns || 80} visibleCount={visibleSessionCount} />
+    <SessionList sessions={page.items} selectedIndex={selectedIndex} selectedSessionKeys={selectedSessionKeys} columns={stdout?.columns || 80} visibleCount={visibleSessionCount} baseIndex={(page.page - 1) * props.pageSize} />
     <KeyHints items={['↑↓ 选择（跨页）', 'Space 多选', 'x 批量删除', '/ 搜索', 'Tab / ←→ 范围', '1 全部 2 Claude 3 Codex 4 OpenCode', 'Ctrl+U / Ctrl+D 或 - / = 翻页', 'Enter 操作', 'r 刷新', 'q 退出']} />
   </Box>;
 }
@@ -317,9 +326,16 @@ function EmptyScreen({ scope, onAllScope }: { readonly scope: SessionScope; read
   </Box>;
 }
 
-function ActionScreen({ session, selectedIndex }: { readonly session: SessionSummary; readonly selectedIndex: number }): React.JSX.Element {
+function ActionScreen({ session, transcript, selectedIndex }: { readonly session: SessionSummary; readonly transcript?: PortableTranscript; readonly selectedIndex: number }): React.JSX.Element {
   const items = [`以 ${session.agent} 续接`, '选择其他 Agent 迁移并继续', '删除会话'];
-  return <Box flexDirection="column" padding={1}><Text bold color={theme.accent}>会话操作</Text><SessionDetails session={session} /><Box flexDirection="column" marginTop={1}>{items.map((item, index) => <Text key={item} color={index === 2 ? theme.danger : undefined} inverse={index === selectedIndex}>{index === selectedIndex ? '› ' : '  '}{item}</Text>)}</Box><KeyHints items={['↑↓ 选择', 'Enter 确认', 'Esc 返回']} /></Box>;
+  return <Box flexDirection="column" padding={1}>
+    <Text bold color={theme.accent}>会话预览</Text>
+    <SessionDetails session={session} />
+    <SessionPreview messages={transcript?.messages ?? []} />
+    <Box marginTop={1}><Text bold>操作</Text></Box>
+    <Box flexDirection="column">{items.map((item, index) => <Text key={item} color={index === 2 ? theme.danger : undefined} inverse={index === selectedIndex}>{index === selectedIndex ? '› ' : '  '}{item}</Text>)}</Box>
+    <KeyHints items={['↑↓ 选择操作', 'Enter 确认', 'Esc 返回']} />
+  </Box>;
 }
 
 function AgentScreen({ session, operation, agents, selectedIndex }: { readonly session: SessionSummary; readonly operation: Operation; readonly agents: readonly { readonly id: AgentId; readonly name: string }[]; readonly selectedIndex: number }): React.JSX.Element {
