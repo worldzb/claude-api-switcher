@@ -1,6 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
+import { supportsImageInput } from '../model-capabilities.js';
+
 export const OPENCODE_PROVIDER_ID = 'wxhand';
 export const OPENCODE_ANTHROPIC_PROVIDER_ID = 'anthropic';
 
@@ -90,6 +92,7 @@ export interface RegisterModelsResult {
   readonly config: OpenCodeConfig;
   readonly added: readonly string[];
   readonly existing: readonly string[];
+  readonly updated: readonly string[];
 }
 
 export function registerProviderModels(
@@ -102,6 +105,7 @@ export function registerProviderModels(
   const models = isRecord(entry.models) ? { ...entry.models } : {};
   const added: string[] = [];
   const existing: string[] = [];
+  const updated: string[] = [];
 
   for (const raw of modelIds) {
     const id = raw.trim();
@@ -110,6 +114,11 @@ export function registerProviderModels(
     }
     if (isRecord(models[id])) {
       existing.push(id);
+      const updatedModel = updateGeneratedModelEntry(models[id], id);
+      if (updatedModel !== models[id]) {
+        models[id] = updatedModel;
+        updated.push(id);
+      }
       continue;
     }
     models[id] = createModelEntry(id);
@@ -117,7 +126,7 @@ export function registerProviderModels(
   }
 
   provider[providerId] = { ...entry, models };
-  return { config: { ...config, provider }, added, existing };
+  return { config: { ...config, provider }, added, existing, updated };
 }
 
 export interface UnregisterModelsResult {
@@ -170,10 +179,30 @@ function getProviderEntry(config: OpenCodeConfig, providerId: string): Record<st
 function createModelEntry(id: string): Record<string, unknown> {
   return {
     name: id,
-    limit: { context: 400000, output: 128000 },
+    limit: { context: 1_000_000, output: 128000 },
+    ...(supportsImageInput(id) ? { modalities: { input: ['text', 'image'] } } : {}),
     options: { store: false },
     variants: variantsFor(id),
   };
+}
+
+function updateGeneratedModelEntry(model: Record<string, unknown>, id: string): Record<string, unknown> {
+  let updated = model;
+  if (isGeneratedModelEntry(model, id) && isLegacyContextLimit(model.limit)) {
+    updated = { ...updated, limit: { context: 1_000_000, output: 128000 } };
+  }
+  if (supportsImageInput(id) && updated.modalities === undefined) {
+    updated = { ...updated, modalities: { input: ['text', 'image'] } };
+  }
+  return updated;
+}
+
+function isGeneratedModelEntry(model: Record<string, unknown>, id: string): boolean {
+  return model.name === id && isRecord(model.options) && model.options.store === false;
+}
+
+function isLegacyContextLimit(value: unknown): boolean {
+  return isRecord(value) && value.context === 400000 && value.output === 128000;
 }
 
 /**

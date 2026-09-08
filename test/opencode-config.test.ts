@@ -104,7 +104,8 @@ describe('OpenCode 模型切换', () => {
     const entry = (updated.provider as Record<string, unknown>).wxhand as Record<string, unknown>;
     expect((entry.models as Record<string, unknown>)['gpt-5.6-terra']).toEqual({
       name: 'gpt-5.6-terra',
-      limit: { context: 400000, output: 128000 },
+      limit: { context: 1_000_000, output: 128000 },
+      modalities: { input: ['text', 'image'] },
       options: { store: false },
       variants: { none: {}, low: {}, medium: {}, high: {}, xhigh: {}, max: {} },
     });
@@ -168,12 +169,17 @@ describe('批量注册模型（同步）', () => {
 
     expect(result.added).toEqual(['gpt-glm', 'gpt-image-2']);
     expect(result.existing).toEqual(['gpt-5.5']);
+    expect(result.updated).toEqual(['gpt-5.5']);
     expect(listProviderModels(result.config)).toEqual(['gpt-5.5', 'gpt-glm', 'gpt-image-2']);
     const entry = (result.config.provider as Record<string, unknown>).wxhand as Record<string, unknown>;
-    expect((entry.models as Record<string, unknown>)['gpt-5.5']).toEqual({ name: 'GPT-5.5', limit: { context: 1050000 } });
+    expect((entry.models as Record<string, unknown>)['gpt-5.5']).toEqual({
+      name: 'GPT-5.5',
+      limit: { context: 1050000 },
+      modalities: { input: ['text', 'image'] },
+    });
     expect((entry.models as Record<string, unknown>)['gpt-glm']).toEqual({
       name: 'gpt-glm',
-      limit: { context: 400000, output: 128000 },
+      limit: { context: 1_000_000, output: 128000 },
       options: { store: false },
       variants: { low: {}, high: {}, max: {} },
     });
@@ -185,6 +191,7 @@ describe('批量注册模型（同步）', () => {
     const result = registerProviderModels({ theme: 'dark' }, ['gpt-5.6']);
 
     expect(result.existing).toEqual([]);
+    expect(result.updated).toEqual([]);
     expect((result.config as Record<string, unknown>).theme).toBe('dark');
     expect(listProviderModels(result.config)).toEqual(['gpt-5.6']);
   });
@@ -195,7 +202,7 @@ describe('批量注册模型（同步）', () => {
     const entry = (result.config.provider as Record<string, unknown>).wxhand as Record<string, unknown>;
     expect((entry.models as Record<string, unknown>)['gpt-deepseek-v4-pro']).toEqual({
       name: 'gpt-deepseek-v4-pro',
-      limit: { context: 400000, output: 128000 },
+      limit: { context: 1_000_000, output: 128000 },
       options: { store: false },
       variants: { high: {}, max: {} },
     });
@@ -224,6 +231,56 @@ describe('批量注册模型（同步）', () => {
 
     expect(result.added).toEqual(['other-model']);
     expect(listProviderModels(result.config, 'anthropic')).toEqual(['other-model']);
+  });
+
+  it('保留已有的图片能力定义', () => {
+    const config = {
+      provider: {
+        wxhand: {
+          models: { 'gpt-5.6': { name: 'GPT-5.6', modalities: { input: ['text'] } } },
+        },
+      },
+    };
+
+    const result = registerProviderModels(config, ['gpt-5.6']);
+
+    expect(result.updated).toEqual([]);
+    expect(result.config).toEqual(config);
+  });
+
+  it('将此前 zmai 生成的 400K 模型升级为 1M', () => {
+    const config = {
+      provider: {
+        wxhand: {
+          models: {
+            'gpt-5.6': {
+              name: 'gpt-5.6',
+              limit: { context: 400000, output: 128000 },
+              options: { store: false },
+              variants: {},
+            },
+          },
+        },
+      },
+    };
+
+    const result = registerProviderModels(config, ['gpt-5.6']);
+
+    expect(result.updated).toEqual(['gpt-5.6']);
+    const entry = (result.config.provider as Record<string, unknown>).wxhand as Record<string, unknown>;
+    expect((entry.models as Record<string, unknown>)['gpt-5.6']).toMatchObject({
+      limit: { context: 1_000_000, output: 128000 },
+      modalities: { input: ['text', 'image'] },
+    });
+  });
+
+  it('为 glm-flash 登记图片输入能力', () => {
+    const result = registerProviderModels({}, ['glm-flash']);
+
+    const provider = (result.config.provider as Record<string, unknown>).wxhand as Record<string, unknown>;
+    expect((provider.models as Record<string, unknown>)['glm-flash']).toMatchObject({
+      modalities: { input: ['text', 'image'] },
+    });
   });
 });
 
@@ -300,7 +357,8 @@ describe('配置文件定位与写入', () => {
           models: {
             'gpt-5.6': {
               name: 'gpt-5.6',
-              limit: { context: 400000, output: 128000 },
+              limit: { context: 1_000_000, output: 128000 },
+              modalities: { input: ['text', 'image'] },
               options: { store: false },
               variants: { none: {}, low: {}, medium: {}, high: {}, xhigh: {}, max: {} },
             },

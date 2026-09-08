@@ -1,6 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
+import { supportsImageInput } from '../model-capabilities.js';
+
 // 仅匹配顶层的 model 行（行首），不会命中 review_model 等其他键或 [table] 段内的键
 const MODEL_LINE = /^model\s*=\s*"([^"]*)"/m;
 const TABLE_HEADER = /^\s*\[/;
@@ -163,8 +165,9 @@ function createCatalogEntry(slug: string, instructions: string): Record<string, 
     slug,
     display_name: slug,
     description: `${slug}（zmai 同步）`,
-    context_window: 400000,
-    max_context_window: 400000,
+    context_window: 1_000_000,
+    max_context_window: 1_000_000,
+    ...(supportsImageInput(slug) ? { input_modalities: ['text', 'image'] } : {}),
     supported_reasoning_levels: [
       { effort: 'low', description: 'Fast responses with lighter reasoning' },
       { effort: 'medium', description: 'Balances speed and reasoning depth for everyday tasks' },

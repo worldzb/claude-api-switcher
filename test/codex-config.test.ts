@@ -96,8 +96,11 @@ describe('模型目录同步（model_catalog_json）', () => {
     expect(result.catalog.models.map((entry) => entry.slug)).toEqual(['gpt-glm', 'gpt-deepseek', 'gpt-5.6-sol', 'gpt-5.5']);
     const custom = result.catalog.models[0] as Record<string, unknown>;
     expect(custom.display_name).toBe('gpt-glm');
+    expect(custom.context_window).toBe(1_000_000);
+    expect(custom.max_context_window).toBe(1_000_000);
     expect(custom.visibility).toBe('list');
     expect(custom.base_instructions).toBe('You are Codex, an agent based on GPT-5.');
+    expect(custom.input_modalities).toBeUndefined();
     expect(custom.supported_reasoning_levels).toEqual([
       { effort: 'low', description: expect.any(String) },
       { effort: 'medium', description: expect.any(String) },
@@ -120,6 +123,16 @@ describe('模型目录同步（model_catalog_json）', () => {
     const broken = buildCodexModelCatalog(['gpt-glm'], { models: ['bad', { slug: 42 }, { slug: 'ok' }] });
     expect(broken.bundledCount).toBe(1);
     expect(broken.catalog.models.map((entry) => entry.slug)).toEqual(['gpt-glm', 'ok']);
+  });
+
+  it('为常见多模态模型声明图片输入能力', () => {
+    const result = buildCodexModelCatalog(['gpt-5.6', 'deepseek-v4-flash-vision-exp', 'glm-flash']);
+
+    expect(result.catalog.models.map((entry) => entry.input_modalities)).toEqual([
+      ['text', 'image'],
+      ['text', 'image'],
+      ['text', 'image'],
+    ]);
   });
 
   it('目录文件路径与 config.toml 同目录', () => {
@@ -151,8 +164,9 @@ describe('模型目录同步（model_catalog_json）', () => {
   });
 
   it('路径含单引号时回退转义的基本字符串', () => {
-    const updated = applyCodexModelCatalog('', path.join("it's", CODEX_CATALOG_FILENAME));
-    expect(updated).toContain(`model_catalog_json = "it's\\${path.sep}${CODEX_CATALOG_FILENAME}"`);
+    const catalogPath = path.join("it's", CODEX_CATALOG_FILENAME);
+    const updated = applyCodexModelCatalog('', catalogPath);
+    expect(updated).toContain(`model_catalog_json = "${catalogPath.replace(/\\/g, '\\\\')}"`);
   });
 
   it('撤回时仅移除 zmai 挂载的行，保留用户自己的指向与段内键', () => {

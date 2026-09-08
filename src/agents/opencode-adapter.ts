@@ -245,7 +245,7 @@ function toSessions(value: unknown, agent: 'opencode'): readonly SessionSummary[
       id,
       title: asString(row.title) || asString(row.slug) || '未命名 OpenCode 会话',
       cwd: asString(row.directory) || asString(row.path) || process.cwd(),
-      updatedAt: toIso(row.time_updated ?? time.updated ?? time.updatedAt),
+      updatedAt: toIso(row.updated ?? row.time_updated ?? time.updated ?? time.updatedAt),
       sourcePath: id,
     }];
   });

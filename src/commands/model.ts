@@ -116,7 +116,7 @@ function syncOpenCodeModels(context: CommandContext): void {
 
   const config = readOpenCodeConfig(context.opencodeConfigFile);
   const result = registerProviderModels(config, models, OPENCODE_PROVIDER_ID);
-  if (result.added.length === 0) {
+  if (result.added.length === 0 && result.updated.length === 0) {
     printSuccess(`OpenCode 模型已是最新，${result.existing.length} 个模型均已注册，无需同步。`);
     return;
   }
@@ -124,6 +124,9 @@ function syncOpenCodeModels(context: CommandContext): void {
   writeOpenCodeConfig(context.opencodeConfigFile, result.config);
   for (const name of result.added) {
     printSuccess(`OpenCode 已注册模型 "${name}"`);
+  }
+  for (const name of result.updated) {
+    printSuccess(`OpenCode 已更新模型 "${name}" 的图片输入或上下文配置`);
   }
   if (result.existing.length > 0) {
     console.log(chalk.gray(`已注册跳过 ${result.existing.length} 个：${result.existing.join(', ')}`));

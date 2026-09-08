@@ -199,9 +199,9 @@ zmai model --reset       # 交互式选择要恢复默认的 Agent
 
 各 Agent 的同步方式：
 
-- **Claude Code**：把配置中的 **claude 模型**批量写入 `~/.claude/settings.json` 的 `modelPicker`，全部出现在 Claude Code 的 `/model` 选择器中（追加在内置模型之后；需 Claude Code ≥ 2.1.242，旧版本自动忽略该字段）。激活哪个模型由你在 Claude Code 里用 `/model` 自己选择：`Enter` 保存为默认（写入同一文件的 `model` 字段），`s` 仅当前会话生效。zmai 不再替你设置单个模型。
-- **OpenCode**：把配置中的自定义模型一次性注册到 `opencode.jsonc` 的 `provider.wxhand.models`（形如 `wxhand/gpt-5.6`）。claude 模型**不会**同步到 OpenCode（wxhand 中转接口不支持）。已注册的跳过（保留原有定义），只补充缺失的，不删除任何现有模型。
-- **Codex**：把配置中的 **codex 模型**批量写入 `~/.codex/zmai-models.json`，并在 `config.toml` 挂载 `model_catalog_json`，全部出现在 Codex 的 `/model` 选择器中（与官方内置模型并列显示；与内置重复的自动跳过，并为自定义模型克隆官方提示词模板）。激活哪个模型由你在 Codex 里用 `/model` 自己选择。需要 Codex CLI ≥ 0.152；检测不到可用的 codex 命令时仅同步自定义模型（内置列表会被替换）。
+- **Claude Code**：把配置中的 **claude 模型**批量写入 `~/.claude/settings.json` 的 `modelPicker`，全部出现在 Claude Code 的 `/model` 选择器中（追加在内置模型之后；需 Claude Code ≥ 2.1.242，旧版本自动忽略该字段）。Claude Code 的选择器没有单独的图片能力字段，已选择的多模态模型会由其 API 端点直接处理图片附件。激活哪个模型由你在 Claude Code 里用 `/model` 自己选择：`Enter` 保存为默认（写入同一文件的 `model` 字段），`s` 仅当前会话生效。zmai 不再替你设置单个模型。
+- **OpenCode**：把配置中的自定义模型一次性注册到 `opencode.jsonc` 的 `provider.wxhand.models`（形如 `wxhand/gpt-5.6`）。新模型使用 1M 上下文窗口；此前由 zmai 生成的 400K 条目会在下次同步时升级。常见多模态模型会登记 `modalities.input: ["text", "image"]`，以支持图片附件；已注册的多模态模型缺少该字段时也会补齐，手工能力定义保持不变。claude 模型**不会**同步到 OpenCode（wxhand 中转接口不支持）。只补充缺失模型或图片能力，不删除任何现有模型。
+- **Codex**：把配置中的 **codex 模型**批量写入 `~/.codex/zmai-models.json`，并在 `config.toml` 挂载 `model_catalog_json`，全部出现在 Codex 的 `/model` 选择器中（与官方内置模型并列显示；与内置重复的自动跳过，并为自定义模型克隆官方提示词模板）。常见多模态模型会登记 `input_modalities: ["text", "image"]`，以支持图片输入。激活哪个模型由你在 Codex 里用 `/model` 自己选择。需要 Codex CLI ≥ 0.152；检测不到可用的 codex 命令时仅同步自定义模型（内置列表会被替换）。
 
 恢复系统默认（`--reset` 或交互式选择「恢复系统默认」）会撤回 zmai 同步的配置：
 
