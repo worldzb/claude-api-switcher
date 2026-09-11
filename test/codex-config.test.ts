@@ -103,8 +103,8 @@ describe('模型目录同步（model_catalog_json）', () => {
     expect(custom.input_modalities).toBeUndefined();
     expect(custom.supported_reasoning_levels).toEqual([
       { effort: 'low', description: expect.any(String) },
-      { effort: 'medium', description: expect.any(String) },
       { effort: 'high', description: expect.any(String) },
+      { effort: 'max', description: expect.any(String) },
     ]);
     // 内置条目原样保留
     expect(result.catalog.models[2]).toEqual(BUNDLED.models[0]);

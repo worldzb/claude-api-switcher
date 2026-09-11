@@ -27,7 +27,7 @@ npm install -g @worldzb/agent-sync
 | 附件迁移 | 复制可读取的图片/文件，生成带校验值的迁移清单 |
 | 集成管理 | 查看 plugins、Skills、MCP，并调用 Agent 原生命令安装或移除 |
 | API 配置 | 管理 Claude API Key、Base URL、默认配置和临时环境变量 |
-| 模型同步 | `zmai model` 把配置中的自定义模型批量设置到各 Agent，或恢复系统默认撤回配置 |
+| 模型同步 | `zmai model` 把配置中的自定义模型批量设置到各 Agent，覆盖同步已有模型，或恢复系统默认撤回配置 |
 
 ## 扫描 Agent
 
@@ -180,10 +180,10 @@ API 配置不再作为一级命令提供。`list` 仍支持 `ls`，`switch` 仍�
 
 ## 模型同步
 
-`zmai model` 把配置（`~/.claude-switch-config/claude-configs.json` 的 `customModels`）中的自定义模型批量设置到各 Agent；恢复系统默认则撤回这些配置：
+`zmai model` 把配置（`~/.claude-switch-config/claude-configs.json` 的 `customModels`）中的自定义模型批量设置到各 Agent；`--overwrite` 覆盖同步（重建已注册模型的 zmai 定义，并清理已从配置移除的模型）；恢复系统默认则撤回这些配置：
 
 ```bash
-# 交互式：先选择 Agent，再选择「同步」或「恢复默认」
+# 交互式：先选择 Agent，再选择「同步」「覆盖同步」或「恢复默认」
 zmai model
 
 # 直接指定 Agent（跳过 Agent 选择）
@@ -192,15 +192,22 @@ zmai model -a claude
 zmai model -a codex
 zmai model -a all        # 依次处理全部 Agent
 
+# 覆盖同步：重建已注册模型的 zmai 定义，并清理已从配置移除的模型
+zmai model --overwrite -a opencode
+zmai model --overwrite -a all
+zmai model --overwrite   # 交互式选择要覆盖同步的 Agent
+
 # 恢复系统默认：撤回已同步的模型配置
 zmai model --reset -a claude
 zmai model --reset       # 交互式选择要恢复默认的 Agent
 ```
 
+`--reset` 与 `--overwrite` 互斥，同时传入会直接报错且不写任何文件。
+
 各 Agent 的同步方式：
 
 - **Claude Code**：把配置中的 **claude 模型**批量写入 `~/.claude/settings.json` 的 `modelPicker`，全部出现在 Claude Code 的 `/model` 选择器中（追加在内置模型之后；需 Claude Code ≥ 2.1.242，旧版本自动忽略该字段）。Claude Code 的选择器没有单独的图片能力字段，已选择的多模态模型会由其 API 端点直接处理图片附件。激活哪个模型由你在 Claude Code 里用 `/model` 自己选择：`Enter` 保存为默认（写入同一文件的 `model` 字段），`s` 仅当前会话生效。zmai 不再替你设置单个模型。
-- **OpenCode**：把配置中的自定义模型一次性注册到 `opencode.jsonc` 的 `provider.wxhand.models`（形如 `wxhand/gpt-5.6`）。新模型使用 1M 上下文窗口；此前由 zmai 生成的 400K 条目会在下次同步时升级。常见多模态模型会登记 `modalities.input: ["text", "image"]`，以支持图片附件；已注册的多模态模型缺少该字段时也会补齐，手工能力定义保持不变。claude 模型**不会**同步到 OpenCode（wxhand 中转接口不支持）。只补充缺失模型或图片能力，不删除任何现有模型。
+- **OpenCode**：把配置中的自定义模型一次性注册到 `opencode.jsonc` 的 `provider.wxhand.models`（形如 `wxhand/gpt-5.6`）。新模型使用 1M 上下文窗口；此前由 zmai 生成的 400K 条目会在下次同步时升级。常见多模态模型会登记 `modalities.input: ["text", "image"]`，以支持图片附件；已注册的多模态模型缺少该字段时也会补齐，手工能力定义保持不变。claude 模型**不会**同步到 OpenCode（wxhand 中转接口不支持）。默认同步只补充缺失模型或图片能力，不重建已注册模型的定义，也不删除任何现有模型；需要让已注册模型跟上最新定义时用 `--overwrite`（见下）。
 - **Codex**：把配置中的 **codex 模型**批量写入 `~/.codex/zmai-models.json`，并在 `config.toml` 挂载 `model_catalog_json`，全部出现在 Codex 的 `/model` 选择器中（与官方内置模型并列显示；与内置重复的自动跳过，并为自定义模型克隆官方提示词模板）。常见多模态模型会登记 `input_modalities: ["text", "image"]`，以支持图片输入。激活哪个模型由你在 Codex 里用 `/model` 自己选择。需要 Codex CLI ≥ 0.152；检测不到可用的 codex 命令时仅同步自定义模型（内置列表会被替换）。
 
 恢复系统默认（`--reset` 或交互式选择「恢复系统默认」）会撤回 zmai 同步的配置：
@@ -210,6 +217,17 @@ zmai model --reset       # 交互式选择要恢复默认的 Agent
 - **Codex**：移除 `model` 行与 `model_catalog_json` 挂载，删除 `zmai-models.json`，官方内置模型回归 `/model` 选择器。
 
 同步与恢复后均需重启对应 Agent 生效（已运行的会话不会感知变更）。
+
+覆盖同步（`--overwrite` 或交互式选择「♻️ 覆盖同步」）在普通同步的基础上，让已同步的模型跟上 zmai 的最新定义：
+
+- **OpenCode**：重建已注册模型的 zmai 管理字段 —— `limit`（上下文/输出上限）、`variants`（推理档位）、`options`、`modalities`（图片能力）。条目上的 `name` 与其他自定义键会保留，但 `options` 是整体替换（你自己加在其中的键会丢失）。模型不支持图片、且条目能判定为 zmai 生成时，`modalities` 会被删除；**手工声明的图片能力不会被删** —— 图片能力是按模型名推断的，对不认识的模型名可能误判，删除不可逆。同时清理**已从 `customModels.opencode` 移除、且能判定为 zmai 生成**的条目（`name` 等于模型 id 且 `options.store` 为 `false`）；手工注册的条目不清理。若顶层 `model` 指向被清理的模型，会一并清除，避免留下悬空引用。
+- **Claude Code**：无额外变化 —— `modelPicker` 每次同步都会按配置整体重建（列表外的行自动移除）。
+- **Codex**：无额外变化 —— 模型目录每次同步都会整体重建（自定义模型全量重新生成，与内置重名的仍按内置优先跳过）。
+
+两点注意：
+
+- 覆盖会写入 `options.store: false`，所以**手写条目一旦被覆盖同步过，就会被视为 zmai 管理**，此后从 `customModels.opencode` 移除时会被清理。想让它继续归你管，把条目的 `name` 改成与模型 id 不同，或去掉 `options.store`。
+- `customModels.opencode` 为空时不清理任何模型（空列表更可能是配置异常，而不是清空意图）。`--reset` 同样是按这个列表撤回的，空列表下也清不掉东西 —— 要清理请先把模型加回列表。
 
 说明：
 

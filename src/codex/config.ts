@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { supportsImageInput } from '../model-capabilities.js';
+import { reasoningLevelsFor, supportsImageInput } from '../model-capabilities.js';
 
 // 仅匹配顶层的 model 行（行首），不会命中 review_model 等其他键或 [table] 段内的键
 const MODEL_LINE = /^model\s*=\s*"([^"]*)"/m;
@@ -160,6 +160,17 @@ function pickInstructionsTemplate(entries: readonly Record<string, unknown>[]): 
   return '';
 }
 
+/** Codex 各推理档位的官方描述，键与 opencode 的 variants 档位名一致。 */
+const CODEX_REASONING_DESCRIPTIONS: Readonly<Record<string, string>> = {
+  minimal: 'Minimal reasoning for simple, fast responses',
+  none: 'No explicit reasoning, fastest direct responses',
+  low: 'Fast responses with lighter reasoning',
+  medium: 'Balances speed and reasoning depth for everyday tasks',
+  high: 'Greater reasoning depth for complex problems',
+  xhigh: 'Extra high reasoning depth for complex problems',
+  max: 'Maximum reasoning depth for the hardest problems',
+};
+
 function createCatalogEntry(slug: string, instructions: string): Record<string, unknown> {
   return {
     slug,
@@ -168,11 +179,10 @@ function createCatalogEntry(slug: string, instructions: string): Record<string, 
     context_window: 1_000_000,
     max_context_window: 1_000_000,
     ...(supportsImageInput(slug) ? { input_modalities: ['text', 'image'] } : {}),
-    supported_reasoning_levels: [
-      { effort: 'low', description: 'Fast responses with lighter reasoning' },
-      { effort: 'medium', description: 'Balances speed and reasoning depth for everyday tasks' },
-      { effort: 'high', description: 'Greater reasoning depth for complex problems' },
-    ],
+    supported_reasoning_levels: reasoningLevelsFor(slug).map((level) => ({
+      effort: level,
+      description: CODEX_REASONING_DESCRIPTIONS[level] ?? level,
+    })),
     shell_type: 'default',
     visibility: 'list',
     supported_in_api: true,
