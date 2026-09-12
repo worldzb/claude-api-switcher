@@ -196,13 +196,14 @@ describe('批量注册模型（同步）', () => {
     expect(listProviderModels(result.config)).toEqual(['gpt-5.6']);
   });
 
-  it('deepseek-v4-pro 写入 high/max 两档', () => {
-    const result = registerProviderModels({}, ['gpt-deepseek-v4-pro']);
+  it('glm-5.2 写入 high/max 两档', () => {
+    const result = registerProviderModels({}, ['gpt-glm-5.2']);
 
     const entry = (result.config.provider as Record<string, unknown>).wxhand as Record<string, unknown>;
-    expect((entry.models as Record<string, unknown>)['gpt-deepseek-v4-pro']).toEqual({
-      name: 'gpt-deepseek-v4-pro',
+    expect((entry.models as Record<string, unknown>)['gpt-glm-5.2']).toEqual({
+      name: 'gpt-glm-5.2',
       limit: { context: 1_000_000, output: 128000 },
+      modalities: { input: ['text', 'image'] },
       options: { store: false },
       variants: { high: {}, max: {} },
     });
@@ -227,7 +228,7 @@ describe('批量注册模型（同步）', () => {
   });
 
   it('可注册到指定的其他 provider', () => {
-    const result = registerProviderModels({}, ['other-model'], 'anthropic');
+    const result = registerProviderModels({}, ['other-model'], { providerId: 'anthropic' });
 
     expect(result.added).toEqual(['other-model']);
     expect(listProviderModels(result.config, 'anthropic')).toEqual(['other-model']);
@@ -281,6 +282,248 @@ describe('批量注册模型（同步）', () => {
     expect((provider.models as Record<string, unknown>)['glm-flash']).toMatchObject({
       modalities: { input: ['text', 'image'] },
     });
+  });
+});
+
+describe('覆盖同步（overwrite）', () => {
+  it('未开启覆盖时既不重建也不清理', () => {
+    const config = {
+      provider: {
+        wxhand: {
+          models: {
+            'gpt-5.5': { name: 'GPT-5.5', limit: { context: 1050000 } },
+            'gpt-gone': { name: 'gpt-gone', limit: { context: 1_000_000, output: 128000 }, options: { store: false }, variants: {} },
+          },
+        },
+      },
+    };
+
+    const result = registerProviderModels(config, ['gpt-5.5']);
+
+    expect(result.overwritten).toEqual([]);
+    expect(result.pruned).toEqual([]);
+    expect(listProviderModels(result.config)).toEqual(['gpt-5.5', 'gpt-gone']);
+    // 原对象未被修改
+    const original = (config.provider.wxhand.models as Record<string, unknown>)['gpt-5.5'] as Record<string, unknown>;
+    expect(original.modalities).toBeUndefined();
+  });
+
+  it('重建 zmai 管理的字段，保留 name 与其他自定义键', () => {
+    const config = {
+      provider: {
+        wxhand: {
+          models: {
+            'gpt-5.6': {
+              name: 'GPT-5.6 自定义名',
+              limit: { context: 1050000 },
+              modalities: { input: ['text'] },
+              customKey: 'keep-me',
+            },
+          },
+        },
+      },
+    };
+
+    const result = registerProviderModels(config, ['gpt-5.6'], { overwrite: true });
+
+    expect(result.overwritten).toEqual(['gpt-5.6']);
+    expect(result.existing).toEqual(['gpt-5.6']);
+    expect(result.updated).toEqual([]);
+    const entry = (result.config.provider as Record<string, unknown>).wxhand as Record<string, unknown>;
+    expect((entry.models as Record<string, unknown>)['gpt-5.6']).toEqual({
+      name: 'GPT-5.6 自定义名',
+      customKey: 'keep-me',
+      limit: { context: 1_000_000, output: 128000 },
+      options: { store: false },
+      variants: { none: {}, low: {}, medium: {}, high: {}, xhigh: {}, max: {} },
+      modalities: { input: ['text', 'image'] },
+    });
+    // 原对象未被修改
+    const original = (config.provider.wxhand.models as Record<string, unknown>)['gpt-5.6'] as Record<string, unknown>;
+    expect(original.limit).toEqual({ context: 1050000 });
+    expect(original.customKey).toBe('keep-me');
+  });
+
+  it('zmai 生成的条目在模型不支持图片时删除过期的 modalities', () => {
+    const config = {
+      provider: {
+        wxhand: {
+          models: {
+            'gpt-glm': { name: 'gpt-glm', options: { store: false }, modalities: { input: ['text', 'image'] } },
+          },
+        },
+      },
+    };
+
+    const result = registerProviderModels(config, ['gpt-glm'], { overwrite: true });
+
+    const entry = (result.config.provider as Record<string, unknown>).wxhand as Record<string, unknown>;
+    const model = (entry.models as Record<string, unknown>)['gpt-glm'] as Record<string, unknown>;
+    expect(model.modalities).toBeUndefined();
+    expect(model.variants).toEqual({ low: {}, high: {}, max: {} });
+    expect(result.overwritten).toEqual(['gpt-glm']);
+  });
+
+  it('手写条目的 modalities 不删除：图片能力是按模型名猜的，删除不可逆', () => {
+    const config = {
+      provider: {
+        wxhand: {
+          models: {
+            // o3-mini 不在 supportsImageInput 的名单里，但用户手工声明了图片能力
+            'o3-mini': { name: 'o3-mini', limit: { context: 200000 }, modalities: { input: ['text', 'image'] } },
+          },
+        },
+      },
+    };
+
+    const result = registerProviderModels(config, ['o3-mini'], { overwrite: true });
+
+    const entry = (result.config.provider as Record<string, unknown>).wxhand as Record<string, unknown>;
+    const model = (entry.models as Record<string, unknown>)['o3-mini'] as Record<string, unknown>;
+    expect(model.modalities).toEqual({ input: ['text', 'image'] });
+    expect(model.limit).toEqual({ context: 1_000_000, output: 128000 });
+    expect(model.name).toBe('o3-mini');
+  });
+
+  it('覆盖同步同时处理此前的 400K 条目', () => {
+    const config = {
+      provider: {
+        wxhand: {
+          models: {
+            'gpt-5.6': { name: 'gpt-5.6', limit: { context: 400000, output: 128000 }, options: { store: false }, variants: {} },
+          },
+        },
+      },
+    };
+
+    const result = registerProviderModels(config, ['gpt-5.6'], { overwrite: true });
+
+    expect(result.overwritten).toEqual(['gpt-5.6']);
+    expect(result.updated).toEqual([]);
+    const entry = (result.config.provider as Record<string, unknown>).wxhand as Record<string, unknown>;
+    expect((entry.models as Record<string, unknown>)['gpt-5.6']).toMatchObject({
+      limit: { context: 1_000_000, output: 128000 },
+      variants: { none: {}, low: {}, medium: {}, high: {}, xhigh: {}, max: {} },
+    });
+  });
+
+  it('定义未变化时不计入覆盖', () => {
+    const first = registerProviderModels({}, ['gpt-5.6'], { overwrite: true });
+    const second = registerProviderModels(first.config, ['gpt-5.6'], { overwrite: true });
+
+    expect(first.added).toEqual(['gpt-5.6']);
+    expect(second.added).toEqual([]);
+    expect(second.overwritten).toEqual([]);
+    expect(second.existing).toEqual(['gpt-5.6']);
+  });
+
+  it('清理已从列表移除的 zmai 生成模型，保留手写条目', () => {
+    const config = {
+      provider: {
+        wxhand: {
+          models: {
+            'gpt-gone': { name: 'gpt-gone', limit: { context: 1_000_000, output: 128000 }, options: { store: false }, variants: {} },
+            'gpt-hand-made': { name: '我的手写模型', limit: { context: 200000 } },
+          },
+        },
+      },
+    };
+
+    const result = registerProviderModels(config, ['gpt-keep'], { overwrite: true });
+
+    expect(result.pruned).toEqual(['gpt-gone']);
+    expect(result.added).toEqual(['gpt-keep']);
+    expect(listProviderModels(result.config)).toEqual(['gpt-hand-made', 'gpt-keep']);
+  });
+
+  it('覆盖后手写条目被纳入 zmai 管理，后续清理会移除它', () => {
+    const config = {
+      provider: {
+        wxhand: {
+          models: {
+            'gpt-5.6': { name: 'gpt-5.6', limit: { context: 1050000 } },
+          },
+        },
+      },
+    };
+
+    const first = registerProviderModels(config, ['gpt-5.6'], { overwrite: true });
+
+    expect(first.overwritten).toEqual(['gpt-5.6']);
+    const entry = (first.config.provider as Record<string, unknown>).wxhand as Record<string, unknown>;
+    expect((entry.models as Record<string, unknown>)['gpt-5.6']).toMatchObject({ name: 'gpt-5.6', options: { store: false } });
+
+    // 覆盖写入了 options.store:false，条目此后满足「zmai 生成」判定，从列表移除时会被清理
+    const second = registerProviderModels(first.config, [], { overwrite: true });
+    expect(second.pruned).toEqual(['gpt-5.6']);
+  });
+
+  it('清理只作用于指定 provider', () => {
+    const config = {
+      provider: {
+        wxhand: {
+          models: {
+            'gpt-gone': { name: 'gpt-gone', limit: { context: 1_000_000, output: 128000 }, options: { store: false }, variants: {} },
+          },
+        },
+      },
+    };
+
+    const result = registerProviderModels(config, ['other-model'], { providerId: 'anthropic', overwrite: true });
+
+    expect(result.pruned).toEqual([]);
+    expect(listProviderModels(result.config)).toEqual(['gpt-gone']);
+    expect(listProviderModels(result.config, 'anthropic')).toEqual(['other-model']);
+  });
+
+  it('清理后顶层 model 指向被清理模型时一并清除', () => {
+    const config = {
+      model: 'wxhand/gpt-gone',
+      provider: {
+        wxhand: {
+          models: {
+            'gpt-gone': { name: 'gpt-gone', limit: { context: 1_000_000, output: 128000 }, options: { store: false }, variants: {} },
+          },
+        },
+      },
+    };
+
+    const result = registerProviderModels(config, ['gpt-keep'], { overwrite: true });
+
+    expect(result.pruned).toEqual(['gpt-gone']);
+    expect(result.modelCleared).toBe(true);
+    expect(findCurrentOpenCodeModel(result.config)).toBeUndefined();
+  });
+
+  it('顶层 model 用裸模型名时也会被清理', () => {
+    const config = {
+      model: 'gpt-gone',
+      provider: {
+        wxhand: {
+          models: {
+            'gpt-gone': { name: 'gpt-gone', limit: { context: 1_000_000, output: 128000 }, options: { store: false }, variants: {} },
+          },
+        },
+      },
+    };
+
+    const result = registerProviderModels(config, ['gpt-keep'], { overwrite: true });
+
+    expect(result.pruned).toEqual(['gpt-gone']);
+    expect(result.modelCleared).toBe(true);
+    expect(findCurrentOpenCodeModel(result.config)).toBeUndefined();
+  });
+
+  it('顶层 model 指向未被清理的模型时保留', () => {
+    const config = {
+      model: 'wxhand/gpt-keep',
+      provider: { wxhand: { models: { 'gpt-keep': { name: 'gpt-keep', limit: { context: 1_000_000, output: 128000 }, options: { store: false }, variants: {} } } } },
+    };
+
+    const result = registerProviderModels(config, ['gpt-keep'], { overwrite: true });
+
+    expect(result.pruned).toEqual([]);
+    expect(findCurrentOpenCodeModel(result.config)).toBe('wxhand/gpt-keep');
   });
 });
 

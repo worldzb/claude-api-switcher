@@ -1,7 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
 
-import { supportsImageInput } from '../model-capabilities.js';
+import { reasoningLevelsFor, supportsImageInput } from '../model-capabilities.js';
 
 export const OPENCODE_PROVIDER_ID = 'wxhand';
 export const OPENCODE_ANTHROPIC_PROVIDER_ID = 'anthropic';
@@ -88,32 +89,71 @@ export function applyOpenCodeModel(config: OpenCodeConfig, modelId: string, prov
   return { ...config, model, provider };
 }
 
+export interface RegisterModelsOptions {
+  readonly providerId?: string;
+  /** 覆盖同步：重建已注册模型由 zmai 管理的字段，并清理已从自定义列表移除的 zmai 生成条目。 */
+  readonly overwrite?: boolean;
+}
+
 export interface RegisterModelsResult {
   readonly config: OpenCodeConfig;
   readonly added: readonly string[];
+  /** 注册前就已存在的模型 id；覆盖同步时其中被重建的部分同时出现在 overwritten 中 */
   readonly existing: readonly string[];
   readonly updated: readonly string[];
+  /** 覆盖同步时 zmai 管理字段确已变化的已注册模型（恒为 existing 的子集） */
+  readonly overwritten: readonly string[];
+  /** 覆盖同步时清理掉的陈旧 zmai 生成模型（与 overwritten 恒不相交） */
+  readonly pruned: readonly string[];
+  /** 顶层 model 指向被清理的模型时被一并清除 */
+  readonly modelCleared: boolean;
 }
 
+/**
+ * 把自定义模型注册到 provider。
+ *
+ * 默认（保守）：只补充缺失的模型，以及为已注册模型补齐图片能力、升级此前的 400K 上下文；
+ * 手工写的能力定义保持不变，也从不删除任何现有模型。
+ *
+ * overwrite：额外重建已注册模型由 zmai 管理的字段（limit / modalities / options / variants，
+ * 保留 name 与其他自定义键），并清理已不在自定义列表中的 zmai 生成条目。
+ * 注意两处刻意的不对称：覆盖作用于**所有**已存在条目（含手工写的），而清理只作用于能判定为
+ * zmai 生成的条目 —— 刷新字段可重算，删除条目不可逆。
+ */
 export function registerProviderModels(
   config: OpenCodeConfig,
   modelIds: readonly string[],
-  providerId = OPENCODE_PROVIDER_ID,
+  options: RegisterModelsOptions = {},
 ): RegisterModelsResult {
+  const providerId = options.providerId ?? OPENCODE_PROVIDER_ID;
+  const overwrite = options.overwrite === true;
   const provider = isRecord(config.provider) ? { ...config.provider } : {};
   const entry = isRecord(provider[providerId]) ? { ...provider[providerId] as Record<string, unknown> } : {};
   const models = isRecord(entry.models) ? { ...entry.models } : {};
   const added: string[] = [];
   const existing: string[] = [];
   const updated: string[] = [];
+  const overwritten: string[] = [];
+  const pruned: string[] = [];
+  const keep = new Set<string>();
 
   for (const raw of modelIds) {
     const id = raw.trim();
     if (!id) {
       continue;
     }
+    keep.add(id);
     if (isRecord(models[id])) {
       existing.push(id);
+      if (overwrite) {
+        const overwrittenModel = overwriteGeneratedModelEntry(models[id], id);
+        // 仅在定义确已变化时替换，未变化的条目保持原对象以维持键序（写入 diff 最小）
+        if (!isDeepStrictEqual(overwrittenModel, models[id])) {
+          models[id] = overwrittenModel;
+          overwritten.push(id);
+        }
+        continue;
+      }
       const updatedModel = updateGeneratedModelEntry(models[id], id);
       if (updatedModel !== models[id]) {
         models[id] = updatedModel;
@@ -125,8 +165,31 @@ export function registerProviderModels(
     added.push(id);
   }
 
+  if (overwrite) {
+    for (const id of Object.keys(models)) {
+      if (keep.has(id)) {
+        continue;
+      }
+      const model = models[id];
+      if (isRecord(model) && isGeneratedModelEntry(model, id)) {
+        delete models[id];
+        pruned.push(id);
+      }
+    }
+  }
+
   provider[providerId] = { ...entry, models };
-  return { config: { ...config, provider }, added, existing, updated };
+  const next: OpenCodeConfig = { ...config, provider };
+  const cleared = clearDanglingModel(next, providerId, pruned);
+  return {
+    config: cleared,
+    added,
+    existing,
+    updated,
+    overwritten,
+    pruned,
+    modelCleared: cleared !== next,
+  };
 }
 
 export interface UnregisterModelsResult {
@@ -155,10 +218,17 @@ export function unregisterProviderModels(
   }
   provider[providerId] = { ...entry, models };
 
-  const current = typeof config.model === 'string' ? config.model : '';
-  const modelCleared = removed.some((name) => current === name || current === `${providerId}/${name}`);
   const next: OpenCodeConfig = { ...config, provider };
-  return { config: modelCleared ? clearOpenCodeModel(next) : next, removed, modelCleared };
+  const cleared = clearDanglingModel(next, providerId, removed);
+  return { config: cleared, removed, modelCleared: cleared !== next };
+}
+
+/** 顶层 model 指向被移除的模型时一并清除，避免留下悬空引用。 */
+function clearDanglingModel(config: OpenCodeConfig, providerId: string, removed: readonly string[]): OpenCodeConfig {
+  const current = typeof config.model === 'string' ? config.model : '';
+  return removed.some((name) => current === name || current === `${providerId}/${name}`)
+    ? clearOpenCodeModel(config)
+    : config;
 }
 
 export function clearOpenCodeModel(config: OpenCodeConfig): OpenCodeConfig {
@@ -197,6 +267,29 @@ function updateGeneratedModelEntry(model: Record<string, unknown>, id: string): 
   return updated;
 }
 
+/**
+ * 覆盖同步：用当前定义重建 zmai 管理的字段，保留 name 与其他自定义键。
+ *
+ * modalities 只在能判定条目由 zmai 生成时才会删除：supportsImageInput 是按模型名猜测的，
+ * 对不认识的模型名（o3-mini、kimi-k2 之类）会返回 false，据此删掉手工声明的图片能力
+ * 会让 OpenCode 静默失去图片附件支持。写入（含覆盖）是安全的，删除才需要凭据。
+ */
+function overwriteGeneratedModelEntry(model: Record<string, unknown>, id: string): Record<string, unknown> {
+  const generated = createModelEntry(id);
+  const next: Record<string, unknown> = {
+    ...model,
+    limit: generated.limit,
+    options: generated.options,
+    variants: generated.variants,
+  };
+  if (generated.modalities !== undefined) {
+    next.modalities = generated.modalities;
+  } else if (isGeneratedModelEntry(model, id)) {
+    delete next.modalities;
+  }
+  return next;
+}
+
 function isGeneratedModelEntry(model: Record<string, unknown>, id: string): boolean {
   return model.name === id && isRecord(model.options) && model.options.store === false;
 }
@@ -205,80 +298,8 @@ function isLegacyContextLimit(value: unknown): boolean {
   return isRecord(value) && value.context === 400000 && value.output === 128000;
 }
 
-/**
- * 各模型的推理档位（reasoning effort levels），与 models.dev 的 reasoning_options 一一对应。
- * 只列出本项目可能同步到的模型；键为去掉供应商前缀后的模型 id。
- */
-const MODEL_VARIANT_LEVELS: Readonly<Record<string, readonly string[]>> = {
-  // DeepSeek V4
-  'deepseek-v4-flash': ['low', 'high', 'max'],
-  'deepseek-v4-flash-vision-exp': ['low', 'high', 'max'],
-  'deepseek-v4-pro': ['high', 'max'],
-  // GLM（Zhipu）
-  'glm-5.2': ['high', 'max'],
-  'glm-5.3': ['low', 'high', 'max'],
-  'glm-5.3-flash': ['low', 'high', 'max'],
-  glm: ['low', 'high', 'max'],
-  'glm-flash': ['low', 'high', 'max'],
-  // GPT / o 系列（OpenAI）
-  'gpt-5': ['minimal', 'low', 'medium', 'high'],
-  'gpt-5-mini': ['minimal', 'low', 'medium', 'high'],
-  'gpt-5-nano': ['minimal', 'low', 'medium', 'high'],
-  'gpt-5-pro': ['high'],
-  'gpt-5.1': ['none', 'low', 'medium', 'high'],
-  'gpt-5.2': ['none', 'low', 'medium', 'high', 'xhigh'],
-  'gpt-5.2-pro': ['medium', 'high', 'xhigh'],
-  'gpt-5.3-codex': ['none', 'low', 'medium', 'high', 'xhigh'],
-  'gpt-5.3-codex-spark': ['none', 'low', 'medium', 'high', 'xhigh'],
-  'gpt-5.4': ['none', 'low', 'medium', 'high', 'xhigh'],
-  'gpt-5.4-mini': ['none', 'low', 'medium', 'high', 'xhigh'],
-  'gpt-5.4-nano': ['none', 'low', 'medium', 'high', 'xhigh'],
-  'gpt-5.4-pro': ['medium', 'high', 'xhigh'],
-  'gpt-5.5': ['none', 'low', 'medium', 'high', 'xhigh'],
-  'gpt-5.5-pro': ['medium', 'high', 'xhigh'],
-  'gpt-5.6': ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
-  'gpt-5.6-luna': ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
-  'gpt-5.6-sol': ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
-  'gpt-5.6-terra': ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
-  // 无推理档位的模型（图像等）
-  'gpt-image-2': [],
-};
-
-/** 未列出的模型回退到 GPT 系默认四档，保持原有行为。 */
-const DEFAULT_VARIANTS: readonly string[] = ['low', 'medium', 'high', 'xhigh'];
-
 function variantsFor(id: string): Record<string, unknown> {
-  return Object.fromEntries(variantLevelsFor(id).map((level) => [level, {}]));
-}
-
-function variantLevelsFor(id: string): readonly string[] {
-  const key = normalizeModelKey(id);
-  const exact = MODEL_VARIANT_LEVELS[key];
-  if (exact !== undefined) {
-    return exact;
-  }
-
-  // wxhand 中转以 gpt- 前缀包装第三方模型，剥离后再匹配底层模型
-  if (key.startsWith('gpt-')) {
-    const underlying = MODEL_VARIANT_LEVELS[key.slice('gpt-'.length)];
-    if (underlying !== undefined) {
-      return underlying;
-    }
-  }
-
-  if (key.includes('deepseek')) {
-    return ['low', 'high', 'max'];
-  }
-  if (key.startsWith('glm')) {
-    return ['low', 'high', 'max'];
-  }
-  return DEFAULT_VARIANTS;
-}
-
-function normalizeModelKey(id: string): string {
-  const value = id.trim().toLowerCase();
-  const slash = value.lastIndexOf('/');
-  return slash >= 0 ? value.slice(slash + 1) : value;
+  return Object.fromEntries(reasoningLevelsFor(id).map((level) => [level, {}]));
 }
 
 export function stripJsoncComments(source: string): string {
