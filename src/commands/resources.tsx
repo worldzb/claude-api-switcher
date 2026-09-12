@@ -8,6 +8,7 @@ import { Worker } from 'node:worker_threads';
 import { fileURLToPath } from 'node:url';
 
 import type { AgentId, IntegrationItem } from '../agents/types.js';
+import { mcpNameError } from '../agents/mcp-name.js';
 import { ResourceApp } from '../integrations/ui/resource-app.js';
 import type { CommandContext } from './context.js';
 
@@ -47,13 +48,15 @@ async function handleResource(context: CommandContext, kind: ResourceKind, label
   const adapters = options.agent ? [context.agents.get(options.agent)] : context.agents.all();
   if (options.install) {
     const agent = requireAgent(options.agent, `${label} 安装`);
-    const accepted = await confirm({ message: `为 ${agent} ${options.scope === 'project' ? '项目' : '用户'}范围${label}：${options.install}？`, initialValue: false });
+    const scope = options.scope || 'user';
+    if (kind === 'mcp') requireMcpScope(context, agent, scope);
+    const accepted = await confirm({ message: `为 ${agent} ${scope === 'project' ? `项目（${mcpProjectDirectory(options.project)}）` : '用户'}范围${label}：${options.install}？`, initialValue: false });
     if (isCancel(accepted) || !accepted) return;
-    if (kind === 'plugin') context.agents.get(agent).installPlugin(options.install, options.scope || 'user');
-    else if (kind === 'skill') context.agents.get(agent).installSkill(options.install, options.scope || 'user', options.project);
+    if (kind === 'plugin') context.agents.get(agent).installPlugin(options.install, scope);
+    else if (kind === 'skill') context.agents.get(agent).installSkill(options.install, scope, options.project);
     else {
       if (!options.config) throw new Error('--install 添加 MCP 时必须提供 --config <json>。');
-      context.agents.get(agent).addMcp(options.install, options.config, options.scope || 'user', options.project);
+      context.agents.get(agent).addMcp(options.install, options.config, scope, options.project);
     }
     console.log(chalk.green(`${label} 操作完成。`));
     return;
@@ -74,6 +77,14 @@ async function handleResource(context: CommandContext, kind: ResourceKind, label
       label={label}
       items={items}
       projectDirectory={options.project || process.cwd()}
+      homeDirectory={resolveHomeDirectory()}
+      mcpProjectAgents={context.agents.all().filter((adapter) => adapter.mcpScopes.includes('project')).map((adapter) => adapter.id)}
+      onAdd={async (input) => {
+        const adapter = context.agents.get(input.agent);
+        requireMcpScope(context, input.agent, input.scope);
+        adapter.addMcp(input.name, input.configuration, input.scope, input.project);
+        return `MCP 已添加：${input.name} · ${input.agent} · ${input.scope === 'user' ? '全局' : mcpProjectDirectory(input.project)}`;
+      }}
       onRefresh={async () => loadResourceItems(context, kind, options.agent, options.project, () => {})}
       onCopy={async (item, target, targetScope) => copyResource(context, item, target, options.project, targetScope)}
       onRemove={async (item) => {
@@ -97,7 +108,12 @@ function copyResource(context: CommandContext, item: IntegrationItem, target: Ag
   const adapter = context.agents.get(target);
   if (item.kind === 'skill') adapter.installSkill(item.location, scope, project);
   else if (item.kind === 'plugin') adapter.installPlugin(item.name, scope);
-  else adapter.addMcp(item.name, context.agents.get(item.agent).readMcpConfiguration(item), scope, project);
+  else {
+    requireMcpScope(context, target, scope);
+    const nameError = mcpNameError(target, item.name);
+    if (nameError) throw new Error(`无法复制到 ${target}：${nameError}`);
+    adapter.addMcp(item.name, context.agents.get(item.agent).readMcpConfiguration(item), scope, project);
+  }
   return `${item.kind === 'skill' ? 'Skill' : item.kind === 'plugin' ? 'Plugin' : 'MCP'} 已复制到 ${target}（${scope === 'project' ? '当前目录' : '全局'}）：${item.name}`;
 }
 
@@ -151,3 +167,13 @@ function validateAgent(agent: string | undefined): asserts agent is AgentId | un
 function validateScope(scope: string | undefined): asserts scope is 'user' | 'project' | undefined {
   if (scope && scope !== 'user' && scope !== 'project') throw new Error('scope 必须为 user 或 project。');
 }
+
+function requireMcpScope(context: CommandContext, agent: AgentId, scope: 'user' | 'project'): void {
+  if (scope === 'user') return;
+  const adapter = context.agents.get(agent);
+  if (!adapter.mcpScopes.includes('project')) throw new Error(`${adapter.name} 只支持全局 MCP，请改用 --scope user（全局）。`);
+}
+
+function mcpProjectDirectory(project?: string): string { return project || process.cwd(); }
+
+function resolveHomeDirectory(): string { return process.env.HOME || process.env.USERPROFILE || ''; }

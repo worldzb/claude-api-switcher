@@ -3,6 +3,7 @@ import path from 'node:path';
 
 import { AbstractFileAdapter } from './abstract-file-adapter.js';
 import { asString, isRecord } from './jsonl.js';
+import { prepareMcpConfiguration } from './mcp-config.js';
 import { findExecutable, runCommand } from './process-runner.js';
 import type { IntegrationItem, LaunchSpec, PortableTranscript, SessionSummary, TranscriptMessage } from './types.js';
 import { normalizeMessage } from '../migration/transcript-normalizer.js';
@@ -86,7 +87,7 @@ export class OpenCodeAdapter extends AbstractFileAdapter {
   }
 
   listIntegrations(project?: string): readonly IntegrationItem[] {
-    return [...super.listIntegrations(project), ...this.listLocalPlugins(project), ...this.listConfiguredItems(), ...this.listMcp()];
+    return [...super.listIntegrations(project), ...this.listLocalPlugins(project), ...this.listConfiguredItems(project), ...this.listMcp()];
   }
 
   installPlugin(plugin: string, scope: 'user' | 'project'): void {
@@ -98,15 +99,21 @@ export class OpenCodeAdapter extends AbstractFileAdapter {
   }
 
   addMcp(name: string, configuration: string, scope: 'user' | 'project', project?: string): void {
-    const parsed = parseMcpConfiguration(configuration);
-    if (!parsed.url && !parsed.command) throw new Error('OpenCode MCP 配置需要 url 或 command。');
+    // OpenCode 只接受 remote / local 两种格式，统一在这里转换，任何入口都不会写出非法配置。
+    const prepared = prepareMcpConfiguration(this.id, configuration);
+    if (!prepared.ok) throw new Error(prepared.error);
     const filePath = scope === 'project'
       ? path.join(project || process.cwd(), 'opencode.json')
       : path.join(this.homeDirectory, '.config', 'opencode', 'opencode.json');
-    updateOpenCodeMcpConfig(filePath, name, JSON.parse(configuration) as Record<string, unknown>);
+    updateOpenCodeMcpConfig(filePath, name, JSON.parse(prepared.configuration) as Record<string, unknown>);
   }
 
   removeIntegration(item: IntegrationItem): void {
+    // 配置文件里的 MCP 是 zmai 自己写进去的，可以安全地删掉对应的键。
+    if (item.kind === 'mcp' && item.location.endsWith('.json') && isRecord(readJsonFile(item.location)?.mcp)) {
+      removeOpenCodeMcpConfig(item.location, item.name);
+      return;
+    }
     if (item.kind === 'mcp' || (item.kind === 'plugin' && item.location.endsWith('.json'))) {
       throw new Error('当前 OpenCode 版本未提供该资源的安全移除命令；请在配置文件中手动移除。');
     }
@@ -144,33 +151,11 @@ export class OpenCodeAdapter extends AbstractFileAdapter {
     });
   }
 
-  private listConfiguredItems(): readonly IntegrationItem[] {
-    const file = path.join(this.homeDirectory, '.config', 'opencode', 'opencode.json');
-    if (!fs.existsSync(file)) return [];
-    try {
-      const parsed: unknown = JSON.parse(fs.readFileSync(file, 'utf8'));
-      if (!isRecord(parsed)) return [];
-      const plugins = Array.isArray(parsed.plugin) ? parsed.plugin : [];
-      const pluginItems = plugins.filter((plugin): plugin is string => typeof plugin === 'string').map((name) => ({
-        agent: this.id,
-        kind: 'plugin' as const,
-        name,
-        scope: 'user' as const,
-        location: file,
-        removable: true,
-      }));
-      const mcp = isRecord(parsed.mcp) ? Object.keys(parsed.mcp).map((name) => ({
-        agent: this.id,
-        kind: 'mcp' as const,
-        name,
-        scope: 'user' as const,
-        location: file,
-        removable: false,
-      })) : [];
-      return [...pluginItems, ...mcp];
-    } catch {
-      return [];
-    }
+  private listConfiguredItems(project?: string): readonly IntegrationItem[] {
+    return [
+      { file: path.join(this.homeDirectory, '.config', 'opencode', 'opencode.json'), scope: 'user' as const },
+      ...(project ? [{ file: path.join(project, 'opencode.json'), scope: 'project' as const }] : []),
+    ].flatMap(({ file, scope }) => readConfiguredItems(this.id, file, scope));
   }
 
   private listMcp(): readonly IntegrationItem[] {
@@ -184,46 +169,6 @@ export class OpenCodeAdapter extends AbstractFileAdapter {
       return [];
     }
   }
-}
-
-interface OpenCodeMcpConfiguration {
-  readonly url?: string;
-  readonly command?: string | readonly string[];
-  readonly args?: readonly string[];
-  readonly headers?: Readonly<Record<string, string>>;
-  readonly environment?: Readonly<Record<string, string>>;
-}
-
-function parseMcpConfiguration(configuration: string): {
-  readonly url?: string;
-  readonly command?: string;
-  readonly args: readonly string[];
-  readonly headers: readonly string[];
-  readonly environment: readonly string[];
-} {
-  let parsed: OpenCodeMcpConfiguration;
-  try {
-    parsed = JSON.parse(configuration) as OpenCodeMcpConfiguration;
-  } catch {
-    throw new Error('OpenCode MCP 配置必须是有效的 JSON。');
-  }
-  const command = Array.isArray(parsed.command) ? parsed.command[0] : parsed.command;
-  const args = Array.isArray(parsed.command) ? [...parsed.command.slice(1), ...(parsed.args || [])] : [...(parsed.args || [])];
-  return {
-    ...(parsed.url ? { url: parsed.url } : {}),
-    ...(command ? { command } : {}),
-    args,
-    headers: toKeyValueOptions(parsed.headers),
-    environment: toKeyValueOptions(parsed.environment),
-  };
-}
-
-function toKeyValueOptions(values: Readonly<Record<string, string>> | undefined): readonly string[] {
-  return values ? Object.entries(values).map(([key, value]) => `${key}=${value}`) : [];
-}
-
-function appendOptions(args: string[], option: string, values: readonly string[]): void {
-  values.forEach((value) => args.push(option, value));
 }
 
 function copySkill(sourcePath: string, root: string): void {
@@ -249,6 +194,57 @@ function toSessions(value: unknown, agent: 'opencode'): readonly SessionSummary[
       sourcePath: id,
     }];
   });
+}
+
+function readConfiguredItems(agent: 'opencode', file: string, scope: 'user' | 'project'): readonly IntegrationItem[] {
+  if (!fs.existsSync(file)) return [];
+  try {
+    const parsed: unknown = JSON.parse(fs.readFileSync(file, 'utf8'));
+    if (!isRecord(parsed)) return [];
+    const plugins = Array.isArray(parsed.plugin) ? parsed.plugin : [];
+    const pluginItems = plugins.filter((plugin): plugin is string => typeof plugin === 'string').map((name) => ({
+      agent,
+      kind: 'plugin' as const,
+      name,
+      scope,
+      location: file,
+      removable: true,
+    }));
+    const mcp = isRecord(parsed.mcp) ? Object.keys(parsed.mcp).map((name) => ({
+      agent,
+      kind: 'mcp' as const,
+      name,
+      scope,
+      location: file,
+      removable: true,
+    })) : [];
+    return [...pluginItems, ...mcp];
+  } catch {
+    return [];
+  }
+}
+
+function readJsonFile(filePath: string): Record<string, unknown> | undefined {
+  if (!fs.existsSync(filePath)) return undefined;
+  try {
+    const parsed: unknown = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    return isRecord(parsed) ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function removeOpenCodeMcpConfig(filePath: string, name: string): void {
+  const current = readJsonFile(filePath);
+  const servers = current && isRecord(current.mcp) ? { ...current.mcp } : undefined;
+  if (!current || !servers || !isRecord(servers[name])) throw new Error(`无法移除 MCP 配置：${name}`);
+  delete servers[name];
+  writeJsonFile(filePath, { ...current, mcp: servers });
+}
+
+function writeJsonFile(filePath: string, value: Record<string, unknown>): void {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
 }
 
 function updateOpenCodeMcpConfig(filePath: string, name: string, configuration: Record<string, unknown>): void {

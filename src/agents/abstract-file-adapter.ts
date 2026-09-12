@@ -9,6 +9,7 @@ export abstract class AbstractFileAdapter implements AgentAdapter {
   abstract readonly name: string;
   abstract readonly command: string;
   abstract readonly historyRoot: string;
+  readonly mcpScopes: readonly IntegrationItem['scope'][] = ['user', 'project'];
 
   discover() {
     const executable = findExecutable(this.command);

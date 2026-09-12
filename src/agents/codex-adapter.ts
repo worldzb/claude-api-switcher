@@ -11,6 +11,8 @@ export class CodexAdapter extends AbstractFileAdapter {
   readonly name = 'Codex';
   readonly command = 'codex';
   readonly historyRoot: string;
+  /** Codex CLI 的 `mcp add` 只写入用户级配置。 */
+  readonly mcpScopes = ['user'] as const;
 
   constructor(private readonly homeDirectory: string) {
     super();

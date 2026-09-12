@@ -114,8 +114,22 @@ zmai migrate codex:<session-id> --to claude
 - `1` / `2`：当前项目 / 全局
 - `1` / `2` / `3` / `4`：全部 / Claude / Codex / OpenCode（在 Agent 分类上下文中）
 - `-` / `+`：上一页 / 下一页
+- `a`：添加 MCP（仅 `mcps`）
 
 `mcps` 和 `skills` 默认显示“当前项目”；项目范围来自 `--project`，未指定时使用当前工作目录。
+
+### 添加 MCP
+
+在 `zmai mcps` 中按 `a` 进入添加向导，依次选择范围、Agent、名称和配置 JSON：
+
+1. **范围**：全局（写入用户级配置，对所有项目生效）、当前项目（写入 `--project` 指定的目录），或指定项目目录（手动输入路径，留空使用当前目录，支持 `~`）。
+2. **Agent**：只列出支持所选范围的 Agent（不受 `--agent` 过滤影响，便于一次为多个 Agent 添加）。项目级配置目前支持 Claude Code（`.mcp.json`）与 OpenCode（`opencode.json`）；Codex 的 `mcp add` 只写入用户级配置，因此只出现在全局范围。
+3. **名称**与**配置**：Claude 与 OpenCode 把名称写成 JSON 键，支持中文等文字；Codex 的名称要经 `codex mcp add`，只接受字母、数字与 `- _ : @ / .`，输入中文会被拦下并提示改名。名称需与该 Agent 同一范围内的 MCP 不重名，且不含空格、引号、`&` 等会破坏配置文件或命令行参数的字符。
+4. **配置按目标 Agent 的格式校验**，能转换时自动转换（确认页展示的就是实际写入的内容）：
+   - Claude / Codex：`{"command":"npx","args":["-y","server"]}` 或 `{"url":"https://example.com/mcp"}`。
+   - OpenCode：只接受 `{"type":"remote","url":…}` 与 `{"type":"local","command":[…]}`，且要求 `enabled`。粘贴 Claude 风格的 `{"type":"streamable-http","url":…}` 会自动转成 remote 并补上 `enabled: true`；`env` 会映射成 `environment`。无法识别的 `type` 会在写入前报错并给出期望格式。
+   - 中文输入法常把 `"` 打成 `“ ”`，终端里看不出区别却会让 JSON 解析失败；向导会在不影响合法内容的前提下自动改成半角，无法解析时错误信息会给出原因、出错位置和附近的字符。
+4. 确认后写入配置；Esc 逐级返回，第一步按 Esc 退出向导。
 
 ```bash
 # 查看资源（交互界面）
@@ -134,13 +148,17 @@ zmai mcps --agent claude --install github --config '{"command":"npx","args":["-y
 zmai skills --agent codex --install ./skills/my-skill --scope user
 zmai plugins --agent claude --install plugin@marketplace
 
+# 添加 MCP 到指定项目（--scope project 时用 --project 指定目录，缺省为当前目录）
+zmai mcps --agent claude --install github --config '{"command":"npx","args":["-y","server"]}' --scope project --project /path/to/project
+zmai mcps --agent opencode --install docs --config '{"url":"https://example.com/mcp"}' --scope project
+
 # 移除资源（交互界面使用 x，命令行使用 --remove）
 zmai mcps --remove claude:github
 zmai skills --remove codex:my-skill
 zmai plugins --remove claude:plugin-name
 ```
 
-脚本或管道中可使用 `--plain` 输出文本。不同 Agent 的配置格式和认证信息不会自动互相复制。
+脚本或管道中可使用 `--plain` 输出文本。不同 Agent 的配置格式和认证信息不会自动互相复制：复制 MCP 时会按目标 Agent 的格式转换配置，名称不符合目标 Agent 规则（如把中文名复制给 Codex）会在写入前提示。OpenCode 配置文件里由 `zmai` 写入的 MCP 现在会出现在列表中并可以移除。
 
 ## Claude API 配置
 

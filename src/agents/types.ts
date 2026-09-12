@@ -72,6 +72,8 @@ export interface IntegrationItem {
 export interface AgentAdapter {
   readonly id: AgentId;
   readonly name: string;
+  /** 该 Agent 的 MCP 配置可以写入的范围。 */
+  readonly mcpScopes: readonly IntegrationItem['scope'][];
   discover(): AgentInstallation;
   listSessions(): readonly SessionSummary[];
   readTranscript(session: SessionSummary): PortableTranscript;
