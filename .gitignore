@@ -4,3 +4,8 @@ dist/
 claude-configs.json
 .DS_Store
 *.log
+
+# 各 Agent 的项目级配置：由 zmai 写入，可能含 MCP 凭据或 API Key，不应提交
+.mcp.json
+opencode.json
+opencode.jsonc

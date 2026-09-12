@@ -6,7 +6,7 @@ import {
   prepareMcpConfiguration,
 } from '../src/agents/mcp-config.js';
 
-const DINGTALK = '{"type":"streamable-http","url":"https://mcp-gw.example.com/server/c0da2d834d9?key=3027afd8"}';
+const DINGTALK = '{"type":"streamable-http","url":"https://mcp-gw.example.com/server/0123456789abcdef?key=0123456789abcdef"}';
 
 function configuration(agent: 'claude' | 'codex' | 'opencode', value: string): string {
   const result = prepareMcpConfiguration(agent, value);
@@ -67,7 +67,7 @@ describe('OpenCode 配置', () => {
   it('把 Claude 风格的 streamable-http 转换为 remote 并补上 enabled', () => {
     expect(configuration('opencode', DINGTALK)).toBe(JSON.stringify({
       type: 'remote',
-      url: 'https://mcp-gw.example.com/server/c0da2d834d9?key=3027afd8',
+      url: 'https://mcp-gw.example.com/server/0123456789abcdef?key=0123456789abcdef',
       enabled: true,
     }));
     expect(configuration('opencode', '{"type":"sse","url":"https://example.com/sse"}'))

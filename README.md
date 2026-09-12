@@ -129,7 +129,7 @@ zmai migrate codex:<session-id> --to claude
    - Claude / Codex：`{"command":"npx","args":["-y","server"]}` 或 `{"url":"https://example.com/mcp"}`。
    - OpenCode：只接受 `{"type":"remote","url":…}` 与 `{"type":"local","command":[…]}`，且要求 `enabled`。粘贴 Claude 风格的 `{"type":"streamable-http","url":…}` 会自动转成 remote 并补上 `enabled: true`；`env` 会映射成 `environment`。无法识别的 `type` 会在写入前报错并给出期望格式。
    - 中文输入法常把 `"` 打成 `“ ”`，终端里看不出区别却会让 JSON 解析失败；向导会在不影响合法内容的前提下自动改成半角，无法解析时错误信息会给出原因、出错位置和附近的字符。
-4. 确认后写入配置；Esc 逐级返回，第一步按 Esc 退出向导。
+5. 确认后写入配置；Esc 逐级返回，第一步按 Esc 退出向导。
 
 ```bash
 # 查看资源（交互界面）

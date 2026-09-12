@@ -39,7 +39,8 @@ class FakeStdout extends EventEmitter {
   get output(): string { return this.frame; }
 }
 
-const CONFIG = '{"type":"streamable-http","url":"https://mcp-gw.example.com/server/c0da2d834d9e8e1e7f5d3f74962881e5e986b739059d513311289fdb6498c75?key=3027afd8ec635de26d063d9418d290ce"}';
+// 纯合成数据：保持与真实配置相同的长度，用于覆盖长配置的粘贴/校验路径
+const CONFIG = '{"type":"streamable-http","url":"https://mcp-gw.example.com/server/0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef?key=0123456789abcdef0123456789abcdef"}';
 
 function delay(ms = 15): Promise<void> { return new Promise((resolve) => setTimeout(resolve, ms)); }
 
